@@ -70,7 +70,7 @@ FADE_SEGUNDOS = 5
 
 # Se futuramente a fórmula matemática for alterada sem mudar as
 # frequências/configurações abaixo, incremente esta string.
-ALGORITMO_VERSAO = "binaural-am-v3-alpha-theta-gamma"
+ALGORITMO_VERSAO = "binaural-am-v4-alpha-theta-gamma"
 
 
 # ============================================================
