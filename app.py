@@ -1,6 +1,8 @@
 import os
+import base64
 import tempfile
 import wave
+from pathlib import Path
 
 import numpy as np
 import requests
@@ -8,7 +10,7 @@ import streamlit as st
 
 
 # ============================================================
-# CONFIGURAÇÃO STREAMLIT
+# CONFIGURAÇÃO DA PÁGINA
 # ============================================================
 
 st.set_page_config(
@@ -19,26 +21,80 @@ st.set_page_config(
 
 
 # ============================================================
+# CONFIGURAÇÃO DO GITHUB
+# ============================================================
+
+GITHUB_OWNER = "elciomcs"
+GITHUB_REPO = "alfa"
+GITHUB_BRANCH = "main"
+
+NOME_ARQUIVO = "parceria_ceitec_ecomcs.wav"
+CAMINHO_GITHUB = f"audio/{NOME_ARQUIVO}"
+
+GITHUB_API = (
+    f"https://api.github.com/repos/"
+    f"{GITHUB_OWNER}/{GITHUB_REPO}"
+)
+
+API_VERSION = "2026-03-10"
+
+
+# ============================================================
+# CAMINHOS LOCAIS
+# ============================================================
+
+PASTA_APP = Path(__file__).resolve().parent
+
+# Depois que o GitHub fizer redeploy,
+# o arquivo estará fisicamente aqui:
+ARQUIVO_NO_REPO = (
+    PASTA_APP
+    / "audio"
+    / NOME_ARQUIVO
+)
+
+# Na primeira geração usamos /tmp
+ARQUIVO_TEMP = (
+    Path(tempfile.gettempdir())
+    / NOME_ARQUIVO
+)
+
+
+# ============================================================
 # CONFIGURAÇÃO DO ÁUDIO
 # ============================================================
 
-TAXA_AMOSTRAGEM = 44100
-CHUNK_SEGUNDOS = 1
+# 8 kHz é suficiente porque a maior frequência
+# utilizada é aproximadamente:
+#
+# 288 Hz + 40 Hz = 328 Hz
+#
+# Nyquist em 8 kHz = 4.000 Hz.
+#
+# Resultado aproximado:
+# 15 min estéreo PCM16 = 28,8 MB.
 
-NOME_ARQUIVO = "parceria_ceitec_ecomcs.wav"
+TAXA_AMOSTRAGEM = 8000
+
+# Processa 5 segundos por bloco
+CHUNK_SEGUNDOS = 5
+
+GANHO = 0.70
 
 
-# Roteiro:
-# Estruturação Física do Silício
-# -> Alinhamento Comercial
-# -> Expansão Global
+# ============================================================
+# FASES DO SINAL
+# ============================================================
 
 FASES = [
 
-    # Fase 1
-    # Ancoragem Industrial
-    # 288 Hz portadora
-    # 15 Hz -> 11 Hz
+    # --------------------------------------------------------
+    # FASE 1
+    # 2 minutos
+    #
+    # Portadora: 288 Hz
+    # Diferença: 15 Hz -> 11 Hz
+    # --------------------------------------------------------
     {
         "tempo": 120,
         "base_inicio": 288,
@@ -47,8 +103,13 @@ FASES = [
         "alvo_fim": 11,
     },
 
-    # Fase 2
-    # 11 Hz -> 7 Hz
+    # --------------------------------------------------------
+    # FASE 2
+    # 3 minutos
+    #
+    # Portadora: 288 Hz
+    # Diferença: 11 Hz -> 7 Hz
+    # --------------------------------------------------------
     {
         "tempo": 180,
         "base_inicio": 288,
@@ -57,8 +118,13 @@ FASES = [
         "alvo_fim": 7,
     },
 
-    # Fase 3
-    # 7 Hz -> 2 Hz
+    # --------------------------------------------------------
+    # FASE 3
+    # 5 minutos
+    #
+    # Portadora: 288 Hz
+    # Diferença: 7 Hz -> 2 Hz
+    # --------------------------------------------------------
     {
         "tempo": 300,
         "base_inicio": 288,
@@ -67,8 +133,13 @@ FASES = [
         "alvo_fim": 2,
     },
 
-    # Fase 4
-    # 2 Hz -> 40 Hz
+    # --------------------------------------------------------
+    # FASE 4
+    # 5 minutos
+    #
+    # Portadora: 288 Hz
+    # Diferença: 2 Hz -> 40 Hz
+    # --------------------------------------------------------
     {
         "tempo": 300,
         "base_inicio": 288,
@@ -80,43 +151,163 @@ FASES = [
 
 
 # ============================================================
-# CONFIGURAÇÃO DO GITHUB
+# TOKEN GITHUB
 # ============================================================
 
-GITHUB_OWNER = "elciomcs"
-GITHUB_REPO = "alfa"
+def obter_token():
 
-# Usaremos uma Release, não um arquivo da branch.
-RELEASE_TAG = "audio-cache-v1"
-RELEASE_NAME = "Audio Cache"
-
-API = (
-    f"https://api.github.com/repos/"
-    f"{GITHUB_OWNER}/{GITHUB_REPO}"
-)
+    try:
+        return st.secrets["GITHUB_TOKEN"]
+    except Exception:
+        return os.environ.get(
+            "GITHUB_TOKEN",
+            ""
+        )
 
 
-try:
-    GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-except KeyError:
-    st.error(
-        "GITHUB_TOKEN não encontrado nos Secrets do Streamlit."
-    )
-    st.stop()
-
+# ============================================================
+# HEADERS GITHUB
+# ============================================================
 
 def github_headers(
-    accept="application/vnd.github+json"
+    token="",
+    accept="application/vnd.github+json",
 ):
-    return {
+
+    headers = {
         "Accept": accept,
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "X-GitHub-Api-Version": "2026-03-10",
+        "X-GitHub-Api-Version": API_VERSION,
     }
+
+    if token:
+        headers["Authorization"] = (
+            f"Bearer {token}"
+        )
+
+    return headers
 
 
 # ============================================================
-# GERAÇÃO MATEMÁTICA
+# FAZ REQUISIÇÃO AO GITHUB
+# ============================================================
+
+def github_request(
+    method,
+    endpoint,
+    token="",
+    timeout=60,
+    **kwargs,
+):
+
+    url = f"{GITHUB_API}{endpoint}"
+
+    resposta = requests.request(
+        method,
+        url,
+        headers=github_headers(token),
+        timeout=timeout,
+        **kwargs,
+    )
+
+    return resposta
+
+
+# ============================================================
+# VERIFICA SE ARQUIVO EXISTE NO GITHUB
+# ============================================================
+
+def arquivo_existe_no_github(token=""):
+
+    endpoint = (
+        f"/contents/{CAMINHO_GITHUB}"
+        f"?ref={GITHUB_BRANCH}"
+    )
+
+    resposta = github_request(
+        "GET",
+        endpoint,
+        token=token,
+        timeout=30,
+    )
+
+    if resposta.status_code == 200:
+        return True
+
+    if resposta.status_code == 404:
+        return False
+
+    raise RuntimeError(
+        "Erro verificando o áudio no GitHub.\n\n"
+        f"HTTP {resposta.status_code}\n"
+        f"{resposta.text}"
+    )
+
+
+# ============================================================
+# BAIXA ARQUIVO DO GITHUB
+# ============================================================
+
+def baixar_audio_github(
+    destino,
+    token="",
+):
+
+    endpoint = (
+        f"/contents/{CAMINHO_GITHUB}"
+        f"?ref={GITHUB_BRANCH}"
+    )
+
+    url = f"{GITHUB_API}{endpoint}"
+
+    resposta = requests.get(
+        url,
+        headers=github_headers(
+            token,
+            "application/vnd.github.raw+json",
+        ),
+        stream=True,
+        timeout=(30, 300),
+    )
+
+    if resposta.status_code == 404:
+        return False
+
+    if resposta.status_code != 200:
+
+        raise RuntimeError(
+            "Erro baixando áudio do GitHub.\n\n"
+            f"HTTP {resposta.status_code}\n"
+            f"{resposta.text}"
+        )
+
+    destino = Path(destino)
+
+    arquivo_parcial = Path(
+        str(destino) + ".part"
+    )
+
+    with open(
+        arquivo_parcial,
+        "wb",
+    ) as arquivo:
+
+        for bloco in resposta.iter_content(
+            chunk_size=1024 * 1024
+        ):
+
+            if bloco:
+                arquivo.write(bloco)
+
+    os.replace(
+        arquivo_parcial,
+        destino,
+    )
+
+    return True
+
+
+# ============================================================
+# GERA UM BLOCO DO SINAL
 # ============================================================
 
 def gerar_bloco(
@@ -126,26 +317,12 @@ def gerar_bloco(
     quantidade,
 ):
 
-    """
-    Reproduz matematicamente a lógica:
-
-        freq_base = np.linspace(...)
-        freq_alvo = np.linspace(...)
-
-        fase_esq =
-            2*pi*cumsum(freq_base)/taxa
-
-        fase_dir =
-            2*pi*cumsum(freq_base + freq_alvo)/taxa
-
-    mas sem criar a fase inteira na memória.
-    """
-
-    total = int(
+    total_amostras = int(
         TAXA_AMOSTRAGEM
         * fase["tempo"]
     )
 
+    # Índices globais dentro desta fase
     indices = (
         inicio
         + np.arange(
@@ -171,16 +348,25 @@ def gerar_bloco(
     )
 
 
-    # np.linspace inclui os dois extremos.
-    if total > 1:
+    # --------------------------------------------------------
+    # Equivalente ao np.linspace()
+    # --------------------------------------------------------
+
+    if total_amostras > 1:
 
         passo_base = (
-            base_fim - base_inicio
-        ) / (total - 1)
+            base_fim
+            - base_inicio
+        ) / (
+            total_amostras - 1
+        )
 
         passo_alvo = (
-            alvo_fim - alvo_inicio
-        ) / (total - 1)
+            alvo_fim
+            - alvo_inicio
+        ) / (
+            total_amostras - 1
+        )
 
     else:
 
@@ -188,30 +374,43 @@ def gerar_bloco(
         passo_alvo = 0.0
 
 
-    # ========================================================
-    # SOMA ACUMULADA ANALÍTICA
+    # --------------------------------------------------------
+    # CANAL ESQUERDO
     #
-    # Para:
+    # Equivalente a:
     #
-    # f(j) = a + d*j
+    # freq_base = np.linspace(...)
+    # fase_esq =
+    # 2*pi*cumsum(freq_base)/taxa
     #
-    # soma de j=0 até k:
-    #
-    # (k+1)*a + d*k*(k+1)/2
-    #
-    # Isso substitui np.cumsum sem carregar tudo na memória.
-    # ========================================================
+    # Sem criar milhões de amostras simultaneamente.
+    # --------------------------------------------------------
 
     soma_base = (
-        (indices + 1) * base_inicio
+        (indices + 1)
+        * base_inicio
+
         + passo_base
         * indices
         * (indices + 1)
         / 2
     )
 
+    fase_esquerda = (
+        2
+        * np.pi
+        * soma_base
+        / TAXA_AMOSTRAGEM
+    )
 
-    inicio_direita = (
+
+    # --------------------------------------------------------
+    # CANAL DIREITO
+    #
+    # freq = base + alvo
+    # --------------------------------------------------------
+
+    direita_inicio = (
         base_inicio
         + alvo_inicio
     )
@@ -223,19 +422,12 @@ def gerar_bloco(
 
     soma_direita = (
         (indices + 1)
-        * inicio_direita
+        * direita_inicio
+
         + passo_direita
         * indices
         * (indices + 1)
         / 2
-    )
-
-
-    fase_esquerda = (
-        2
-        * np.pi
-        * soma_base
-        / TAXA_AMOSTRAGEM
     )
 
     fase_direita = (
@@ -246,11 +438,15 @@ def gerar_bloco(
     )
 
 
-    onda_esquerda = np.sin(
+    # --------------------------------------------------------
+    # ONDAS SENOIDAIS
+    # --------------------------------------------------------
+
+    esquerda = np.sin(
         fase_esquerda
     )
 
-    onda_direita = np.sin(
+    direita = np.sin(
         fase_direita
     )
 
@@ -269,14 +465,17 @@ def gerar_bloco(
     )
 
 
+    # --------------------------------------------------------
     # Fade-in
+    # --------------------------------------------------------
+
     if indice_fase > 0:
 
         mascara = (
             indices < fade_t
         )
 
-        if fade_t > 1:
+        if np.any(mascara):
 
             envelope[mascara] = (
                 indices[mascara]
@@ -284,34 +483,36 @@ def gerar_bloco(
             )
 
 
+    # --------------------------------------------------------
     # Fade-out
+    # --------------------------------------------------------
+
     if indice_fase < len(FASES) - 1:
 
         inicio_fade = (
-            total - fade_t
+            total_amostras
+            - fade_t
         )
 
         mascara = (
             indices >= inicio_fade
         )
 
-        if fade_t > 1:
+        if np.any(mascara):
 
             envelope[mascara] = (
-                total
+                total_amostras
                 - 1
                 - indices[mascara]
-            ) / (fade_t - 1)
+            ) / (
+                fade_t - 1
+            )
 
 
-    onda_esquerda *= envelope
-    onda_direita *= envelope
+    esquerda *= envelope
+    direita *= envelope
 
-
-    return (
-        onda_esquerda,
-        onda_direita,
-    )
+    return esquerda, direita
 
 
 # ============================================================
@@ -319,10 +520,24 @@ def gerar_bloco(
 # ============================================================
 
 def gerar_sinal_parceria_industrial(
-    filename
+    destino,
 ):
 
-    chunk = (
+    destino = Path(destino)
+
+    arquivo_parcial = Path(
+        str(destino) + ".gerando"
+    )
+
+    if arquivo_parcial.exists():
+
+        try:
+            arquivo_parcial.unlink()
+        except OSError:
+            pass
+
+
+    tamanho_chunk = int(
         TAXA_AMOSTRAGEM
         * CHUNK_SEGUNDOS
     )
@@ -331,7 +546,9 @@ def gerar_sinal_parceria_industrial(
     # ========================================================
     # PRIMEIRA PASSAGEM
     #
-    # Descobre o pico máximo, preservando sua normalização:
+    # Descobre o maior pico de cada canal.
+    #
+    # Isso preserva a normalização do código original:
     #
     # sinal / max(abs(sinal)) * 0.7
     # ========================================================
@@ -340,20 +557,34 @@ def gerar_sinal_parceria_industrial(
     max_direita = 0.0
 
 
+    progresso = st.progress(
+        0,
+        text="Analisando o sinal..."
+    )
+
+
+    duracao_total = sum(
+        fase["tempo"]
+        for fase in FASES
+    )
+
+    segundos_processados = 0
+
+
     for indice_fase, fase in enumerate(FASES):
 
-        total = int(
+        total_amostras = int(
             TAXA_AMOSTRAGEM
             * fase["tempo"]
         )
 
         inicio = 0
 
-        while inicio < total:
+        while inicio < total_amostras:
 
             quantidade = min(
-                chunk,
-                total - inicio,
+                tamanho_chunk,
+                total_amostras - inicio,
             )
 
             esquerda, direita = gerar_bloco(
@@ -363,25 +594,47 @@ def gerar_sinal_parceria_industrial(
                 quantidade,
             )
 
-            max_esquerda = max(
-                max_esquerda,
-                float(
-                    np.max(
-                        np.abs(esquerda)
-                    )
-                ),
+            pico_esq = float(
+                np.max(
+                    np.abs(esquerda)
+                )
             )
 
-            max_direita = max(
-                max_direita,
-                float(
-                    np.max(
-                        np.abs(direita)
-                    )
-                ),
+            pico_dir = float(
+                np.max(
+                    np.abs(direita)
+                )
             )
+
+            if pico_esq > max_esquerda:
+                max_esquerda = pico_esq
+
+            if pico_dir > max_direita:
+                max_direita = pico_dir
 
             inicio += quantidade
+
+            segundos_processados += (
+                quantidade
+                / TAXA_AMOSTRAGEM
+            )
+
+            valor = int(
+                (
+                    segundos_processados
+                    / (
+                        duracao_total * 2
+                    )
+                )
+                * 100
+            )
+
+            progresso.progress(
+                min(valor, 50),
+                text=(
+                    "Analisando o sinal..."
+                ),
+            )
 
 
     # Trava contra divisão por zero
@@ -392,19 +645,21 @@ def gerar_sinal_parceria_industrial(
     # ========================================================
     # SEGUNDA PASSAGEM
     #
-    # Gera e grava diretamente no WAV.
-    # Apenas 1 segundo fica em RAM.
+    # Gera e grava WAV no disco.
     # ========================================================
 
+    segundos_gravados = 0
+
+
     with wave.open(
-        filename,
+        str(arquivo_parcial),
         "wb",
     ) as wav:
 
         # Estéreo
         wav.setnchannels(2)
 
-        # PCM 16 bit
+        # 16 bits = 2 bytes
         wav.setsampwidth(2)
 
         wav.setframerate(
@@ -414,20 +669,19 @@ def gerar_sinal_parceria_industrial(
 
         for indice_fase, fase in enumerate(FASES):
 
-            total = int(
+            total_amostras = int(
                 TAXA_AMOSTRAGEM
                 * fase["tempo"]
             )
 
             inicio = 0
 
-            while inicio < total:
+            while inicio < total_amostras:
 
                 quantidade = min(
-                    chunk,
-                    total - inicio,
+                    tamanho_chunk,
+                    total_amostras - inicio,
                 )
-
 
                 esquerda, direita = gerar_bloco(
                     fase,
@@ -437,363 +691,639 @@ def gerar_sinal_parceria_industrial(
                 )
 
 
-                # Mesma normalização do seu código
+                # --------------------------------------------
+                # Mesmo ganho do código original
+                # --------------------------------------------
+
                 esquerda = (
                     esquerda
                     / max_esquerda
-                ) * 0.7
+                ) * GANHO
 
                 direita = (
                     direita
                     / max_direita
-                ) * 0.7
+                ) * GANHO
 
 
-                # Estéreo L/R
-                audio_estereo = np.column_stack(
-                    (
-                        esquerda,
-                        direita,
+                # --------------------------------------------
+                # Estéreo
+                # --------------------------------------------
+
+                audio_estereo = (
+                    np.column_stack(
+                        (
+                            esquerda,
+                            direita,
+                        )
                     )
                 )
 
 
+                # --------------------------------------------
                 # PCM 16 bits
-                audio_16bit = (
+                # --------------------------------------------
+
+                audio_16bit = np.clip(
                     audio_estereo
-                    * 32767
+                    * 32767,
+                    -32768,
+                    32767,
                 ).astype("<i2")
 
+
+                # --------------------------------------------
+                # Grava imediatamente
+                # --------------------------------------------
 
                 wav.writeframes(
                     audio_16bit.tobytes()
                 )
 
-
                 inicio += quantidade
 
+                segundos_gravados += (
+                    quantidade
+                    / TAXA_AMOSTRAGEM
+                )
 
-    return filename
+
+                percentual_segunda = (
+                    segundos_gravados
+                    / duracao_total
+                )
+
+                valor = int(
+                    50
+                    + (
+                        percentual_segunda
+                        * 50
+                    )
+                )
+
+                progresso.progress(
+                    min(valor, 100),
+                    text=(
+                        "Gerando o áudio..."
+                    ),
+                )
 
 
-# ============================================================
-# GITHUB RELEASE
-# ============================================================
-
-def obter_release():
-
-    url = (
-        f"{API}/releases/tags/"
-        f"{RELEASE_TAG}"
+    progresso.progress(
+        100,
+        text="Áudio gerado."
     )
 
-    resposta = requests.get(
-        url,
-        headers=github_headers(),
-        timeout=30,
-    )
+    progresso.empty()
 
 
-    if resposta.status_code == 200:
-        return resposta.json()
-
-
-    if resposta.status_code != 404:
-        resposta.raise_for_status()
-
-
-    # Ainda não existe.
-    # Cria a Release.
-    url = f"{API}/releases"
-
-    resposta = requests.post(
-        url,
-        headers=github_headers(),
-        json={
-            "tag_name": RELEASE_TAG,
-            "target_commitish": "main",
-            "name": RELEASE_NAME,
-            "body": (
-                "Arquivo de áudio pré-processado "
-                "utilizado pelo aplicativo Streamlit."
-            ),
-            "draft": False,
-            "prerelease": True,
-            "make_latest": "false",
-        },
-        timeout=30,
-    )
-
-
-    if resposta.status_code == 201:
-        return resposta.json()
-
-
-    # Pode acontecer se duas instâncias
-    # tentarem criar ao mesmo tempo.
-    if resposta.status_code == 422:
-
-        resposta = requests.get(
-            (
-                f"{API}/releases/tags/"
-                f"{RELEASE_TAG}"
-            ),
-            headers=github_headers(),
-            timeout=30,
-        )
-
-        resposta.raise_for_status()
-
-        return resposta.json()
-
-
-    resposta.raise_for_status()
-
-
-# ============================================================
-# LOCALIZA O WAV DENTRO DA RELEASE
-# ============================================================
-
-def procurar_asset(release):
-
-    for asset in release.get(
-        "assets",
-        []
-    ):
-
-        if asset.get("name") == NOME_ARQUIVO:
-
-            return asset
-
-    return None
-
-
-# ============================================================
-# BAIXA O WAV DO GITHUB
-# ============================================================
-
-def baixar_asset(
-    asset,
-    destino,
-):
-
-    resposta = requests.get(
-        asset["url"],
-        headers=github_headers(
-            "application/octet-stream"
-        ),
-        stream=True,
-        timeout=(30, 600),
-    )
-
-    resposta.raise_for_status()
-
-
-    with open(
+    # Só publica o arquivo completo
+    os.replace(
+        arquivo_parcial,
         destino,
-        "wb",
-    ) as arquivo:
-
-        for bloco in resposta.iter_content(
-            chunk_size=1024 * 1024
-        ):
-
-            if bloco:
-                arquivo.write(bloco)
-
+    )
 
     return destino
 
 
 # ============================================================
-# ENVIA WAV PARA A RELEASE
+# GITHUB - OBTÉM HEAD DA BRANCH
 # ============================================================
 
-def enviar_asset(
-    release,
-    filename,
+def github_obter_head(token):
+
+    resposta = github_request(
+        "GET",
+        (
+            f"/git/ref/heads/"
+            f"{GITHUB_BRANCH}"
+        ),
+        token=token,
+        timeout=30,
+    )
+
+    if resposta.status_code != 200:
+
+        raise RuntimeError(
+            "Não foi possível obter a branch "
+            f"{GITHUB_BRANCH}.\n\n"
+            f"HTTP {resposta.status_code}\n"
+            f"{resposta.text}"
+        )
+
+    return resposta.json()[
+        "object"
+    ]["sha"]
+
+
+# ============================================================
+# GITHUB - OBTÉM COMMIT
+# ============================================================
+
+def github_obter_commit(
+    token,
+    commit_sha,
 ):
 
-    upload_url = (
-        release["upload_url"]
-        .split("{")[0]
+    resposta = github_request(
+        "GET",
+        f"/git/commits/{commit_sha}",
+        token=token,
+        timeout=30,
     )
 
+    if resposta.status_code != 200:
 
-    headers = github_headers()
+        raise RuntimeError(
+            "Não foi possível consultar "
+            "o commit atual.\n\n"
+            f"HTTP {resposta.status_code}\n"
+            f"{resposta.text}"
+        )
 
-    headers["Content-Type"] = (
-        "audio/wav"
-    )
+    return resposta.json()
 
 
-    tamanho = os.path.getsize(
-        filename
-    )
+# ============================================================
+# GITHUB - CRIA BLOB DO WAV
+# ============================================================
 
-    headers["Content-Length"] = str(
-        tamanho
+def github_criar_blob(
+    token,
+    arquivo,
+):
+
+    status = st.empty()
+
+    status.info(
+        "Enviando o áudio para o GitHub..."
     )
 
 
     with open(
-        filename,
+        arquivo,
         "rb",
-    ) as arquivo:
+    ) as f:
 
-        resposta = requests.post(
-            upload_url,
-            headers=headers,
-            params={
-                "name": NOME_ARQUIVO
-            },
-            data=arquivo,
-            timeout=(30, 1800),
+        dados = f.read()
+
+
+    conteudo_base64 = (
+        base64.b64encode(
+            dados
+        ).decode("ascii")
+    )
+
+    del dados
+
+
+    resposta = github_request(
+        "POST",
+        "/git/blobs",
+        token=token,
+        timeout=600,
+        json={
+            "content": conteudo_base64,
+            "encoding": "base64",
+        },
+    )
+
+    del conteudo_base64
+
+
+    if resposta.status_code != 201:
+
+        raise RuntimeError(
+            "O GitHub não aceitou o arquivo "
+            "de áudio.\n\n"
+            f"HTTP {resposta.status_code}\n"
+            f"{resposta.text}"
         )
 
 
-    if resposta.status_code == 201:
-        return resposta.json()
+    status.empty()
+
+    return resposta.json()["sha"]
 
 
-    # 422 = outra instância pode
-    # ter acabado de enviar o mesmo arquivo.
-    if resposta.status_code == 422:
+# ============================================================
+# GITHUB - CRIA TREE
+# ============================================================
 
-        release = obter_release()
+def github_criar_tree(
+    token,
+    tree_base,
+    blob_sha,
+):
 
-        asset = procurar_asset(
-            release
+    resposta = github_request(
+        "POST",
+        "/git/trees",
+        token=token,
+        timeout=60,
+        json={
+            "base_tree": tree_base,
+
+            "tree": [
+                {
+                    "path": CAMINHO_GITHUB,
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob_sha,
+                }
+            ],
+        },
+    )
+
+    if resposta.status_code != 201:
+
+        raise RuntimeError(
+            "Erro criando a árvore Git.\n\n"
+            f"HTTP {resposta.status_code}\n"
+            f"{resposta.text}"
         )
 
-        if asset:
-            return asset
+    return resposta.json()["sha"]
+
+
+# ============================================================
+# GITHUB - CRIA COMMIT
+# ============================================================
+
+def github_criar_commit(
+    token,
+    tree_sha,
+    parent_sha,
+):
+
+    resposta = github_request(
+        "POST",
+        "/git/commits",
+        token=token,
+        timeout=60,
+        json={
+            "message": (
+                "Adiciona áudio binaural "
+                "pré-processado"
+            ),
+
+            "tree": tree_sha,
+
+            "parents": [
+                parent_sha
+            ],
+        },
+    )
+
+    if resposta.status_code != 201:
+
+        raise RuntimeError(
+            "Erro criando commit.\n\n"
+            f"HTTP {resposta.status_code}\n"
+            f"{resposta.text}"
+        )
+
+    return resposta.json()["sha"]
+
+
+# ============================================================
+# GITHUB - ATUALIZA BRANCH
+# ============================================================
+
+def github_atualizar_branch(
+    token,
+    commit_sha,
+):
+
+    resposta = github_request(
+        "PATCH",
+        (
+            f"/git/refs/heads/"
+            f"{GITHUB_BRANCH}"
+        ),
+        token=token,
+        timeout=60,
+        json={
+            "sha": commit_sha,
+            "force": False,
+        },
+    )
+
+    return resposta
+
+
+# ============================================================
+# PUBLICA WAV DIRETAMENTE NO REPOSITÓRIO
+# ============================================================
+
+def publicar_audio_no_github(
+    arquivo,
+    token,
+):
+
+    if not token:
+
+        raise RuntimeError(
+            "GITHUB_TOKEN não configurado. "
+            "O áudio foi gerado, mas não pode "
+            "ser salvo no repositório."
+        )
+
+
+    # --------------------------------------------------------
+    # Cria o blob uma única vez
+    # --------------------------------------------------------
+
+    blob_sha = github_criar_blob(
+        token,
+        arquivo,
+    )
+
+
+    # --------------------------------------------------------
+    # Duas tentativas caso a branch mude
+    # simultaneamente
+    # --------------------------------------------------------
+
+    for tentativa in range(2):
+
+        head_sha = github_obter_head(
+            token
+        )
+
+        commit_atual = (
+            github_obter_commit(
+                token,
+                head_sha,
+            )
+        )
+
+        tree_base = (
+            commit_atual["tree"]["sha"]
+        )
+
+        nova_tree = github_criar_tree(
+            token,
+            tree_base,
+            blob_sha,
+        )
+
+        novo_commit = (
+            github_criar_commit(
+                token,
+                nova_tree,
+                head_sha,
+            )
+        )
+
+        resposta = (
+            github_atualizar_branch(
+                token,
+                novo_commit,
+            )
+        )
+
+
+        if resposta.status_code == 200:
+
+            return True
+
+
+        # Branch mudou.
+        # Tenta novamente usando o HEAD mais novo.
+        if resposta.status_code in (
+            409,
+            422,
+        ):
+
+            continue
+
+
+        raise RuntimeError(
+            "Erro atualizando a branch "
+            f"{GITHUB_BRANCH}.\n\n"
+            f"HTTP {resposta.status_code}\n"
+            f"{resposta.text}"
+        )
+
+
+    # Talvez outra instância já tenha publicado
+    if arquivo_existe_no_github(
+        token
+    ):
+
+        return True
 
 
     raise RuntimeError(
-        "Erro enviando áudio ao GitHub:\n"
-        f"{resposta.status_code}\n"
-        f"{resposta.text}"
+        "Não foi possível atualizar "
+        "a branch do GitHub após duas tentativas."
     )
 
 
 # ============================================================
-# PREPARA O ÁUDIO
+# PREPARAÇÃO DO ÁUDIO
 # ============================================================
 
-@st.cache_resource(
-    show_spinner=False
-)
 def preparar_audio():
 
-    release = obter_release()
-
-    asset = procurar_asset(
-        release
-    )
+    token = obter_token()
 
 
-    # --------------------------------------------------------
-    # JÁ EXISTE NO GITHUB
-    # --------------------------------------------------------
-
-    if asset:
-
-        fd, caminho = tempfile.mkstemp(
-            suffix=".wav"
-        )
-
-        os.close(fd)
-
-        baixar_asset(
-            asset,
-            caminho,
-        )
-
-        return caminho
-
-
-    # --------------------------------------------------------
-    # PRIMEIRA EXECUÇÃO
+    # ========================================================
+    # 1. ARQUIVO JÁ VEIO JUNTO NO CLONE DO GITHUB
     #
-    # Não existe no GitHub:
-    # gera -> envia -> usa arquivo local.
-    # --------------------------------------------------------
+    # Este será o caso normal depois do primeiro deploy.
+    # ========================================================
 
-    fd, caminho = tempfile.mkstemp(
-        suffix=".wav"
+    if ARQUIVO_NO_REPO.exists():
+
+        return (
+            ARQUIVO_NO_REPO,
+            "repositorio",
+        )
+
+
+    # ========================================================
+    # 2. TALVEZ JÁ ESTEJA NO GITHUB,
+    # MAS ESTA INSTÂNCIA AINDA NÃO TENHA O ARQUIVO.
+    # ========================================================
+
+    try:
+
+        if baixar_audio_github(
+            ARQUIVO_TEMP,
+            token,
+        ):
+
+            return (
+                ARQUIVO_TEMP,
+                "github",
+            )
+
+    except Exception:
+
+        # Se houver token, erro real deve aparecer.
+        if token:
+            raise
+
+
+    # ========================================================
+    # 3. NÃO EXISTE.
+    #
+    # PRECISAMOS DO TOKEN PARA GERAR E PUBLICAR.
+    # ========================================================
+
+    if not token:
+
+        raise RuntimeError(
+            "O arquivo ainda não existe no GitHub "
+            "e o GITHUB_TOKEN não foi configurado "
+            "nos Secrets do Streamlit."
+        )
+
+
+    # ========================================================
+    # 4. VERIFICA NOVAMENTE AUTENTICADO
+    # ========================================================
+
+    if arquivo_existe_no_github(
+        token
+    ):
+
+        baixar_audio_github(
+            ARQUIVO_TEMP,
+            token,
+        )
+
+        return (
+            ARQUIVO_TEMP,
+            "github",
+        )
+
+
+    # ========================================================
+    # 5. PRIMEIRA EXECUÇÃO:
+    #
+    # GERA O WAV
+    # ========================================================
+
+    st.info(
+        "Primeira execução: gerando o áudio "
+        "de 15 minutos. Isso ocorrerá apenas "
+        "uma vez."
     )
-
-    os.close(fd)
-
 
     gerar_sinal_parceria_industrial(
-        caminho
+        ARQUIVO_TEMP
     )
 
 
-    enviar_asset(
-        release,
-        caminho,
+    # ========================================================
+    # 6. PUBLICA NO REPOSITÓRIO
+    # ========================================================
+
+    st.info(
+        "Áudio gerado. Salvando em "
+        f"`{CAMINHO_GITHUB}`..."
+    )
+
+    publicar_audio_no_github(
+        ARQUIVO_TEMP,
+        token,
     )
 
 
-    return caminho
+    return (
+        ARQUIVO_TEMP,
+        "gerado",
+    )
 
 
 # ============================================================
 # INTERFACE
 # ============================================================
 
-st.markdown(
-    """
-    <div style="
-        text-align:center;
-        padding-top:25px;
-    ">
+st.title(
+    "🎧 Experiência Sonora"
+)
 
-        <div style="font-size:70px;">
-            🎧
-        </div>
-
-        <h1>
-            Experiência Sonora
-        </h1>
-
-        <p style="
-            font-size:19px;
-            opacity:0.75;
-        ">
-            Sessão estéreo de 15 minutos
-        </p>
-
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.caption(
+    "Sessão estéreo de 15 minutos"
 )
 
 
 # ============================================================
-# PREPARAÇÃO AUTOMÁTICA
+# PREPARA ÁUDIO ANTES DO BOTÃO
 # ============================================================
 
-try:
+if "arquivo_audio" not in st.session_state:
 
-    with st.spinner(
-        "Preparando o áudio..."
-    ):
+    try:
 
-        arquivo_audio = preparar_audio()
+        with st.spinner(
+            "Preparando o áudio..."
+        ):
+
+            caminho_audio, origem = (
+                preparar_audio()
+            )
+
+        st.session_state[
+            "arquivo_audio"
+        ] = str(caminho_audio)
+
+        st.session_state[
+            "origem_audio"
+        ] = origem
 
 
-except Exception as erro:
+        if origem == "gerado":
+
+            st.success(
+                "Áudio gerado e salvo em "
+                "`audio/parceria_ceitec_ecomcs.wav` "
+                "no GitHub."
+            )
+
+            st.info(
+                "Como a branch main foi atualizada, "
+                "o Streamlit pode reiniciar uma vez. "
+                "Depois disso o áudio já estará "
+                "permanentemente no repositório."
+            )
+
+
+    except Exception as erro:
+
+        st.error(
+            "Não foi possível preparar o áudio."
+        )
+
+        st.exception(
+            erro
+        )
+
+        st.stop()
+
+
+arquivo_audio = (
+    st.session_state[
+        "arquivo_audio"
+    ]
+)
+
+
+# ============================================================
+# CONFERE ARQUIVO
+# ============================================================
+
+if not Path(
+    arquivo_audio
+).exists():
 
     st.error(
-        "Não foi possível preparar o áudio."
-    )
-
-    st.exception(
-        erro
+        "O arquivo de áudio não foi encontrado."
     )
 
     st.stop()
@@ -803,8 +1333,10 @@ except Exception as erro:
 # BOTÃO + INSTRUÇÃO
 # ============================================================
 
-col_botao, col_instrucao = st.columns(
-    [1.2, 2.3],
+st.write("")
+
+col_botao, col_texto = st.columns(
+    [1, 2],
     vertical_alignment="center",
 )
 
@@ -818,27 +1350,11 @@ with col_botao:
     )
 
 
-with col_instrucao:
+with col_texto:
 
     st.markdown(
-        """
-        <div style="
-            font-size:18px;
-            line-height:1.5;
-        ">
-
-            <b>
-                Coloque os fones de ouvido.
-            </b>
-
-            <br>
-
-            Escute por
-            <b>15 minutos</b>.
-
-        </div>
-        """,
-        unsafe_allow_html=True,
+        "**🎧 Coloque os fones de ouvido.**  \n"
+        "Escute por **15 minutos**."
     )
 
 
@@ -850,17 +1366,21 @@ if escutar:
 
     st.write("")
 
+    st.success(
+        "Sessão iniciada."
+    )
+
     st.audio(
         arquivo_audio,
         format="audio/wav",
         autoplay=True,
         loop=False,
         alt=(
-            "Sinal de áudio estéreo "
+            "Áudio estéreo binaural "
             "com duração de quinze minutos."
         ),
     )
 
     st.caption(
-        "🎧 Mantenha o volume em um nível confortável."
+        "Mantenha o volume em um nível confortável."
     )
