@@ -700,30 +700,6 @@ def preparar_audio():
 
 st.title("🎧 Experiência Sonora Alfa + Theta")
 
-st.write(
-    "Sessão estéreo de **15 minutos**, com estímulo auditivo "
-    "programado para permanecer entre **10 Hz (alfa)** e "
-    "**6 Hz (theta)**."
-)
-
-st.caption(
-    "Use fones estéreo e mantenha o volume em um nível confortável."
-)
-
-with st.expander("Protocolo de frequências"):
-    st.markdown(
-        """
-- **0:00–7:00:** 10 Hz — alfa estável
-- **7:00–8:00:** transição gradual de 10 Hz para 6 Hz
-- **8:00–15:00:** 6 Hz — theta estável
-
-**Portadora:** 288 Hz  
-**Canal esquerdo:** 288 Hz  
-**Canal direito:** 288 Hz + frequência-alvo  
-**Modulação:** a mesma frequência-alvo modula suavemente a amplitude dos dois canais.
-        """
-    )
-
 # ============================================================
 # PREPARA O ÁUDIO ANTES DE LIBERAR O BOTÃO
 # ============================================================
