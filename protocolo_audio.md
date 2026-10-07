@@ -1,28 +1,27 @@
-# Protocolo de Áudio Alfa + Theta
+# Protocolo de Áudio Alfa + Theta + Gamma
 
-Sessão estéreo de **15 minutos**, com estímulo auditivo programado para permanecer entre **10 Hz (alfa)** e **6 Hz (theta)**.
+Sessão estéreo de **15 minutos**.
 
-Use fones estéreo e mantenha o volume em um nível confortável.
+## Protocolo
 
-## Protocolo de frequências
-
-- **0:00–7:00:** 10 Hz — alfa estável
-- **7:00–8:00:** transição gradual de 10 Hz para 6 Hz
-- **8:00–15:00:** 6 Hz — theta estável
+- **0:00–5:00:** 10 Hz — Alfa
+- **5:00–11:00:** 4,5 Hz — Theta
+- **11:00–12:00:** transição gradual de 4,5 Hz para 40 Hz
+- **12:00–15:00:** 40 Hz — Gamma
 
 ## Configuração do sinal
 
 - **Portadora:** 288 Hz
 - **Canal esquerdo:** 288 Hz
-- **Canal direito:** 288 Hz + frequência-alvo
-- **Modulação:** a mesma frequência-alvo modula suavemente a amplitude dos dois canais.
+- **Canal direito:** 288 Hz + frequência-alvo instantânea
+- **Modulação:** a mesma frequência-alvo modula suavemente a amplitude dos dois canais
+- **Duração total:** 900 segundos
+- **Formato:** WAV estéreo, PCM 16-bit, 8 kHz
 
-## Arquivo gerado
-
-O aplicativo gera o arquivo:
+O aplicativo mantém um único arquivo de áudio no repositório:
 
 `audio/parceria_ceitec_ecomcs.wav`
 
-O áudio é estéreo, PCM 16-bit, e é produzido em blocos para reduzir o uso de memória durante a geração.
+Além do WAV, o aplicativo mantém `audio/protocolo_version.txt`, um pequeno marcador técnico. Quando o protocolo muda, o hash muda automaticamente; na primeira execução da nova versão, o WAV é regenerado e sobrescrito. Nas execuções seguintes, o arquivo existente é reutilizado.
 
-> Observação: as frequências acima descrevem o estímulo auditivo programado. A resposta fisiológica pode variar entre pessoas.
+> As frequências acima descrevem o estímulo auditivo gerado pelo aplicativo. Não constituem garantia de um estado cerebral específico ou de efeitos externos.
