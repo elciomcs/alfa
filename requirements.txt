@@ -1,3 +1,2 @@
-numpy
-scipy
-streamlit
+streamlit==1.65.0
+numpy==2.4.6
