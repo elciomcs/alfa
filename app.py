@@ -72,6 +72,6 @@ def gerar_sinal_parceria_industrial(filename="parceria_ceitec_ecomcs.wav"):
         print(f"\n[ERRO] Falha ao salvar o arquivo: {e}")
 
 # Errado
-if _name_ == "_main_":
-
+if __name__ == "__main__":
     gerar_sinal_parceria_industrial()
+
