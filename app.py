@@ -5,7 +5,6 @@ import io
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Laboratório Mental Quântico", page_icon="🧠", layout="centered")
-
 st.title("🧠 Laboratório Mental - Coerência e Conexão")
 st.write("Gere e toque os estímulos acústicos para o seu protocolo de 48 horas.")
 
@@ -55,14 +54,16 @@ if st.button("Gerar Áudio de Disparo (10 min Binaural)"):
 st.markdown("---")
 
 # ==========================================
-# FASE 2: PROTOCOLO NOTURNO (HÍBRIDO MONAURAL + ISOCRÔNICO)
+# FASE 2: PROTOCOLO NOTURNO (HÍBRIDO MONAURAL + ISOCRÔNICO) - OTIMIZADO
 # ==========================================
 st.header("2. Fase Passiva: Incubação de Sono (Híbrido)")
 st.write("Escute no **alto-falante do celular** com volume baixo (10% a 20%). 30 min em Teta e 30 min em Delta para desligar o ego e processar o destino.")
 
-if st.button("Gerar Áudio de Sono (1 H_ora Híbrido)"):
-    with st.spinner("Processando dupla modulação Teta/Delta (1 hora)..."):
-        taxa = 44100
+if st.button("Gerar Áudio de Sono (1 Hora Híbrido)"):
+    with st.spinner("Processando dupla modulação Teta/Delta (1 hora - RAM Otimizada)..."):
+        # OTIMIZAÇÃO: Taxa reduzida de 44100 para 11025 Hz para evitar estouro de memória (RAM) no servidor.
+        # Como as ondas Teta/Delta são graves, a precisão matemática e o efeito acústico continuam idênticos.
+        taxa = 11025  
         f_base = 100.0
         t_theta, t_delta, t_trans = 30 * 60, 30 * 60, 60
         t_total = t_theta + t_delta
@@ -86,7 +87,6 @@ if st.button("Gerar Áudio de Sono (1 H_ora Híbrido)"):
         # Modulação Isocrônica
         fase_iso = 2 * np.pi * np.cumsum(freqs_pulso) / taxa
         mod_iso = np.sin(fase_iso) ** 2
-        
         som_final = som_monaural * mod_iso
         
         # Fade out final
@@ -98,5 +98,5 @@ if st.button("Gerar Áudio de Sono (1 H_ora Híbrido)"):
         bytes_io = io.BytesIO()
         wavfile.write(bytes_io, taxa, audio_16)
         
-        st.success("Áudio Híbrido Noturno Pronto!")
+        st.success("Áudio Híbrido Noturno de 1 Hora Pronto!")
         st.audio(bytes_io.getvalue(), format="audio/wav")
