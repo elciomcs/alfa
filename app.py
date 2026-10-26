@@ -11,10 +11,6 @@ except ImportError:
     edge_tts = None
 
 
-# ============================================================
-# PÁGINA
-# ============================================================
-
 st.set_page_config(
     page_title="Laboratório do Amor",
     page_icon="❤️",
@@ -30,34 +26,22 @@ Uma jornada guiada em quatro etapas:
 
 **1. Amor a DEUS → 2. Amor ao Próximo → 3. Anseio e Propósito → 4. Integração Noturna de 1 hora**
 
-Cada sessão funciona com um único botão: **narração → cerca de 0,2 s → áudio automático**.
+Cada sessão funciona com um único botão:
+
+**narração → cerca de 0,2 segundo → áudio automático**
 
 Nas três primeiras etapas, a voz reaparece em momentos-chave enquanto o som abaixa suavemente.
 
-Na última etapa, a voz prepara e depois o áudio monaural + isocrônico segue sozinho por 1 hora.
+Na última etapa, a voz faz a preparação inicial e depois o áudio monaural + isocrônico segue sozinho por 1 hora.
 """
 )
 
 
-# ============================================================
-# VOZ NEURAL
-# ============================================================
-
-@st.cache_data(
-    show_spinner=False,
-    ttl=60 * 60 * 24 * 7
-)
-def gerar_clipes_neurais(
-    textos,
-    voz,
-    rate="-14%",
-    pitch="-2Hz"
-):
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
+def gerar_clipes_neurais(textos, voz, rate="-14%", pitch="-2Hz"):
 
     if edge_tts is None:
-        return tuple(
-            b"" for _ in textos
-        )
+        return tuple(b"" for _ in textos)
 
     async def _run():
 
@@ -68,7 +52,7 @@ def gerar_clipes_neurais(
             dados = bytearray()
 
             communicate = edge_tts.Communicate(
-                texto,
+                text=texto,
                 voice=voz,
                 rate=rate,
                 pitch=pitch,
@@ -114,14 +98,10 @@ def mp3_data_uri(data):
     ).decode("ascii")
 
     return (
-        f"data:audio/mpeg;base64,{encoded}"
+        "data:audio/mpeg;base64,"
+        + encoded
     )
 
-
-# ============================================================
-# PLAYER ÚNICO
-# VOZ → 0,2 s → ÁUDIO → VOZES PONTUAIS
-# ============================================================
 
 def sessao_guiada(
     titulo,
@@ -137,7 +117,7 @@ def sessao_guiada(
     textos = (
         [intro_texto]
         +
-        [p[1] for p in prompts]
+        [item[1] for item in prompts]
     )
 
     if edge_tts is None:
@@ -168,8 +148,8 @@ def sessao_guiada(
             )
 
             st.caption(
-                f"Detalhe técnico: "
-                f"{type(exc).__name__}"
+                "Detalhe técnico: "
+                + type(exc).__name__
             )
 
             return
@@ -189,7 +169,7 @@ def sessao_guiada(
     prompt_payload = []
 
     for (
-        at,
+        segundo,
         texto
     ), clip in zip(
         prompts,
@@ -198,7 +178,7 @@ def sessao_guiada(
 
         prompt_payload.append(
             {
-                "at": float(at),
+                "at": float(segundo),
                 "text": texto,
                 "src": mp3_data_uri(
                     clip
@@ -206,1589 +186,1850 @@ def sessao_guiada(
             }
         )
 
-    payload = json.dumps(
-        prompt_payload,
-        ensure_ascii=False
-    )
+    # IMPORTANTE:
+    # Este HTML NÃO é uma f-string.
+    # Assim, as chaves { } do JavaScript
+    # não causam erro no Python.
 
-    intro_js = json.dumps(
-        intro_uri
-    )
+    html_code = r'''
+<div style="
+    font-family:Arial,sans-serif;
+    padding:16px;
+    border:1px solid rgba(128,128,128,.28);
+    border-radius:16px;
+    background:rgba(128,128,128,.05)
+">
 
-    modo_js = json.dumps(
-        modo
-    )
-
-    html = f"""
     <div style="
-        font-family:Arial,sans-serif;
-        padding:16px;
-        border:1px solid rgba(128,128,128,.28);
-        border-radius:16px;
-        background:rgba(128,128,128,.05)
+        font-size:18px;
+        font-weight:700;
+        margin-bottom:4px
+    ">
+        🎧 __TITLE__
+    </div>
+
+    <div style="
+        font-size:13px;
+        opacity:.78;
+        margin-bottom:14px
+    ">
+        Um toque inicia toda a sequência automaticamente.
+    </div>
+
+    <div style="
+        display:flex;
+        gap:8px;
+        flex-wrap:wrap;
+        margin-bottom:12px
     ">
 
-        <div style="
-            font-size:18px;
-            font-weight:700;
-            margin-bottom:4px
-        ">
-            🎧 {titulo}
-        </div>
+        <button
+            onclick="startSession()"
+            style="
+                padding:10px 16px;
+                border-radius:9px;
+                border:0;
+                cursor:pointer;
+                font-weight:700
+            "
+        >
+            ▶ Iniciar sessão
+        </button>
 
-        <div style="
+        <button
+            onclick="pauseSession()"
+            style="
+                padding:9px 12px;
+                border-radius:9px;
+                cursor:pointer
+            "
+        >
+            ⏸ Pausar
+        </button>
+
+        <button
+            onclick="resumeSession()"
+            style="
+                padding:9px 12px;
+                border-radius:9px;
+                cursor:pointer
+            "
+        >
+            ⏯ Continuar
+        </button>
+
+        <button
+            onclick="stopSession()"
+            style="
+                padding:9px 12px;
+                border-radius:9px;
+                cursor:pointer
+            "
+        >
+            ⏹ Parar
+        </button>
+
+    </div>
+
+    <div style="
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:14px;
+        margin:10px 0 12px
+    ">
+
+        <label style="font-size:12px">
+
+            Voz
+
+            <br>
+
+            <input
+                id="voiceVol"
+                type="range"
+                min="0.25"
+                max="1"
+                value="0.88"
+                step="0.05"
+                style="width:100%"
+            >
+
+        </label>
+
+        <label style="font-size:12px">
+
+            Som
+
+            <br>
+
+            <input
+                id="soundVol"
+                type="range"
+                min="0.01"
+                max="0.18"
+                value="0.065"
+                step="0.005"
+                style="width:100%"
+            >
+
+        </label>
+
+    </div>
+
+    <div
+        id="status"
+        style="
             font-size:13px;
-            opacity:.78;
-            margin-bottom:14px
-        ">
-            Um toque inicia toda a sequência automaticamente.
-        </div>
+            margin-bottom:8px
+        "
+    >
+        Pronto para iniciar.
+    </div>
 
-        <div style="
-            display:flex;
-            gap:8px;
-            flex-wrap:wrap;
-            margin-bottom:12px
-        ">
-
-            <button
-                onclick="startSession()"
-                style="
-                    padding:10px 16px;
-                    border-radius:9px;
-                    border:0;
-                    cursor:pointer;
-                    font-weight:700
-                "
-            >
-                ▶ Iniciar sessão
-            </button>
-
-            <button
-                onclick="pauseSession()"
-                style="
-                    padding:9px 12px;
-                    border-radius:9px;
-                    cursor:pointer
-                "
-            >
-                ⏸ Pausar
-            </button>
-
-            <button
-                onclick="resumeSession()"
-                style="
-                    padding:9px 12px;
-                    border-radius:9px;
-                    cursor:pointer
-                "
-            >
-                ⏯ Continuar
-            </button>
-
-            <button
-                onclick="stopSession()"
-                style="
-                    padding:9px 12px;
-                    border-radius:9px;
-                    cursor:pointer
-                "
-            >
-                ⏹ Parar
-            </button>
-
-        </div>
-
-        <div style="
-            display:grid;
-            grid-template-columns:1fr 1fr;
-            gap:14px;
-            margin:10px 0 12px
-        ">
-
-            <label style="font-size:12px">
-
-                Voz
-
-                <br>
-
-                <input
-                    id="voiceVol"
-                    type="range"
-                    min="0.25"
-                    max="1"
-                    value="0.88"
-                    step="0.05"
-                    style="width:100%"
-                >
-
-            </label>
-
-            <label style="font-size:12px">
-
-                Som
-
-                <br>
-
-                <input
-                    id="soundVol"
-                    type="range"
-                    min="0.01"
-                    max="0.18"
-                    value="0.065"
-                    step="0.005"
-                    style="width:100%"
-                >
-
-            </label>
-
-        </div>
+    <div style="
+        height:8px;
+        border-radius:8px;
+        background:rgba(128,128,128,.18);
+        overflow:hidden
+    ">
 
         <div
-            id="status"
+            id="bar"
             style="
-                font-size:13px;
-                margin-bottom:8px
+                height:100%;
+                width:0%;
+                background:currentColor;
+                opacity:.55;
+                transition:width .4s linear
             "
         >
-            Pronto para iniciar.
-        </div>
-
-        <div style="
-            height:8px;
-            border-radius:8px;
-            background:rgba(128,128,128,.18);
-            overflow:hidden
-        ">
-
-            <div
-                id="bar"
-                style="
-                    height:100%;
-                    width:0%;
-                    background:currentColor;
-                    opacity:.55;
-                    transition:width .4s linear
-                "
-            >
-            </div>
-
-        </div>
-
-        <div
-            id="clock"
-            style="
-                font-size:12px;
-                opacity:.70;
-                margin-top:6px
-            "
-        >
-            00:00
         </div>
 
     </div>
 
+    <div
+        id="clock"
+        style="
+            font-size:12px;
+            opacity:.70;
+            margin-top:6px
+        "
+    >
+        00:00
+    </div>
 
-    <script>
-
-    const introSrc =
-        {intro_js};
-
-    const prompts =
-        {payload};
-
-    const duration =
-        {float(duracao_seg)};
-
-    const mode =
-        {modo_js};
-
-    const pauseAfterVoice =
-        {float(pausa_apos_voz)}
-        * 1000;
+</div>
 
 
-    let ctx = null;
+<script>
 
-    let master = null;
+const introSrc =
+    __INTRO__;
 
-    let nodes = [];
+const prompts =
+    __PROMPTS__;
 
-    let introAudio = null;
+const duration =
+    __DURATION__;
 
-    let activeVoice = null;
+const mode =
+    __MODE__;
 
-    let startCtxTime = null;
-
-    let timer = null;
-
-    let keepAliveOsc = null;
-
-    let keepAliveGain = null;
-
-    let stopped = true;
-
-    let paused = false;
+const pauseAfterVoice =
+    __PAUSE_MS__;
 
 
-    prompts.forEach(
-        p => p.played = false
+let ctx = null;
+
+let master = null;
+
+let nodes = [];
+
+let introAudio = null;
+
+let activeVoice = null;
+
+let startCtxTime = null;
+
+let timer = null;
+
+let keepAliveOsc = null;
+
+let keepAliveGain = null;
+
+let stopped = true;
+
+let paused = false;
+
+
+prompts.forEach(
+    function (p) {
+
+        p.played =
+            false;
+
+    }
+);
+
+
+function fmt(sec) {
+
+    sec = Math.max(
+        0,
+        Math.floor(sec)
+    );
+
+    const m =
+        String(
+            Math.floor(
+                sec / 60
+            )
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const s =
+        String(
+            sec % 60
+        ).padStart(
+            2,
+            "0"
+        );
+
+    return (
+        m
+        +
+        ":"
+        +
+        s
+    );
+
+}
+
+
+function status(texto) {
+
+    document.getElementById(
+        "status"
+    ).innerText =
+        texto;
+
+}
+
+
+function makeContext() {
+
+    if (
+        !ctx
+        ||
+        ctx.state === "closed"
+    ) {
+
+        ctx = new (
+            window.AudioContext
+            ||
+            window.webkitAudioContext
+        )();
+
+    }
+
+}
+
+
+function startKeepAlive() {
+
+    if (
+        !ctx
+        ||
+        keepAliveOsc
+    ) {
+
+        return;
+
+    }
+
+    keepAliveOsc =
+        ctx.createOscillator();
+
+    keepAliveGain =
+        ctx.createGain();
+
+
+    keepAliveOsc.frequency.value =
+        20;
+
+    keepAliveGain.gain.value =
+        0.000001;
+
+
+    keepAliveOsc.connect(
+        keepAliveGain
+    );
+
+    keepAliveGain.connect(
+        ctx.destination
     );
 
 
-    function fmt(sec) {{
+    keepAliveOsc.start();
 
-        sec = Math.max(
-            0,
-            Math.floor(sec)
-        );
+}
 
-        const m =
-            String(
-                Math.floor(
-                    sec / 60
-                )
-            ).padStart(
-                2,
-                '0'
-            );
 
-        const s =
-            String(
-                sec % 60
-            ).padStart(
-                2,
-                '0'
-            );
+function stopKeepAlive() {
 
-        return `${{m}}:${{s}}`;
+    if (keepAliveOsc) {
 
-    }}
+        try {
 
+            keepAliveOsc.stop();
 
-    function status(txt) {{
+        }
 
-        document.getElementById(
-            'status'
-        ).innerText = txt;
+        catch (e) {}
 
-    }}
 
+        try {
 
-    function makeContext() {{
+            keepAliveOsc.disconnect();
 
-        if (
-            !ctx
-            ||
-            ctx.state === 'closed'
-        ) {{
+        }
 
-            ctx = new (
-                window.AudioContext
-                ||
-                window.webkitAudioContext
-            )();
+        catch (e) {}
 
-        }}
+    }
 
-    }}
 
+    if (keepAliveGain) {
 
-    function startKeepAlive() {{
+        try {
 
-        if (
-            !ctx
-            ||
-            keepAliveOsc
-        ) return;
+            keepAliveGain.disconnect();
 
+        }
 
-        keepAliveOsc =
-            ctx.createOscillator();
+        catch (e) {}
 
-        keepAliveGain =
-            ctx.createGain();
+    }
 
 
-        keepAliveOsc.frequency.value =
-            20;
+    keepAliveOsc =
+        null;
 
-        keepAliveGain.gain.value =
-            0.000001;
+    keepAliveGain =
+        null;
 
+}
 
-        keepAliveOsc.connect(
-            keepAliveGain
-        );
 
-        keepAliveGain.connect(
-            ctx.destination
-        );
+function createBinaural(
+    base,
+    points
+) {
 
+    const merger =
+        ctx.createChannelMerger(2);
 
-        keepAliveOsc.start();
+    const gL =
+        ctx.createGain();
 
-    }}
+    const gR =
+        ctx.createGain();
 
+    const left =
+        ctx.createOscillator();
 
-    function stopKeepAlive() {{
+    const right =
+        ctx.createOscillator();
 
-        if (keepAliveOsc) {{
 
-            try {{
-                keepAliveOsc.stop();
-            }}
-            catch(e) {{}}
+    gL.gain.value =
+        0.46;
 
+    gR.gain.value =
+        0.46;
 
-            try {{
-                keepAliveOsc.disconnect();
-            }}
-            catch(e) {{}}
 
-        }}
+    left.type =
+        "sine";
 
+    right.type =
+        "sine";
 
-        if (keepAliveGain) {{
 
-            try {{
-                keepAliveGain.disconnect();
-            }}
-            catch(e) {{}}
+    left.frequency.value =
+        base;
 
-        }}
 
+    right.frequency.setValueAtTime(
+        base
+        +
+        points[0][1],
+        ctx.currentTime
+    );
 
-        keepAliveOsc = null;
 
-        keepAliveGain = null;
-
-    }}
-
-
-    function createBinaural(
-        base,
-        points
-    ) {{
-
-        const merger =
-            ctx.createChannelMerger(2);
-
-        const gL =
-            ctx.createGain();
-
-        const gR =
-            ctx.createGain();
-
-        const left =
-            ctx.createOscillator();
-
-        const right =
-            ctx.createOscillator();
-
-
-        gL.gain.value =
-            0.46;
-
-        gR.gain.value =
-            0.46;
-
-
-        left.type =
-            'sine';
-
-        right.type =
-            'sine';
-
-
-        left.frequency.value =
-            base;
-
-
-        right.frequency.setValueAtTime(
-            base + points[0][1],
-            ctx.currentTime
-        );
-
-
-        points
-            .slice(1)
-            .forEach(
-                p => {{
-
-                    const t =
-                        ctx.currentTime
-                        +
-                        p[0];
-
-                    const val =
-                        base
-                        +
-                        p[1];
-
-
-                    if (
-                        p[2]
-                        ===
-                        'ramp'
-                    ) {{
-
-                        right.frequency
-                            .linearRampToValueAtTime(
-                                val,
-                                t
-                            );
-
-                    }}
-
-                    else {{
-
-                        right.frequency
-                            .setValueAtTime(
-                                val,
-                                t
-                            );
-
-                    }}
-
-                }}
-            );
-
-
-        left.connect(
-            gL
-        );
-
-        right.connect(
-            gR
-        );
-
-
-        gL.connect(
-            merger,
-            0,
-            0
-        );
-
-        gR.connect(
-            merger,
-            0,
-            1
-        );
-
-
-        merger.connect(
-            master
-        );
-
-
-        left.start();
-
-        right.start();
-
-
-        left.stop(
-            ctx.currentTime
-            +
-            duration
-            +
-            1
-        );
-
-        right.stop(
-            ctx.currentTime
-            +
-            duration
-            +
-            1
-        );
-
-
-        nodes.push(
-            left,
-            right,
-            gL,
-            gR,
-            merger
-        );
-
-    }}
-
-
-    function createMonauralIso() {{
-
-        const mix =
-            ctx.createGain();
-
-        const o1 =
-            ctx.createOscillator();
-
-        const o2 =
-            ctx.createOscillator();
-
-        const mod =
-            ctx.createGain();
-
-        const lfo =
-            ctx.createOscillator();
-
-        const lfoDepth =
-            ctx.createGain();
-
-
-        mix.gain.value =
-            0.50;
-
-
-        o1.type =
-            'sine';
-
-        o2.type =
-            'sine';
-
-
-        o1.frequency.value =
-            100;
-
-
-        o2.frequency.setValueAtTime(
-            106,
-            ctx.currentTime
-        );
-
-        o2.frequency.setValueAtTime(
-            106,
-            ctx.currentTime
-            +
-            1770
-        );
-
-        o2.frequency.linearRampToValueAtTime(
-            102.5,
-            ctx.currentTime
-            +
-            1830
-        );
-
-        o2.frequency.setValueAtTime(
-            102.5,
-            ctx.currentTime
-            +
-            3600
-        );
-
-
-        mod.gain.value =
-            0.59;
-
-
-        lfo.type =
-            'sine';
-
-
-        lfo.frequency.setValueAtTime(
-            6,
-            ctx.currentTime
-        );
-
-        lfo.frequency.setValueAtTime(
-            6,
-            ctx.currentTime
-            +
-            1770
-        );
-
-        lfo.frequency.linearRampToValueAtTime(
-            2.5,
-            ctx.currentTime
-            +
-            1830
-        );
-
-        lfo.frequency.setValueAtTime(
-            2.5,
-            ctx.currentTime
-            +
-            3600
-        );
-
-
-        lfoDepth.gain.value =
-            0.41;
-
-
-        lfo.connect(
-            lfoDepth
-        );
-
-        lfoDepth.connect(
-            mod.gain
-        );
-
-
-        o1.connect(
-            mix
-        );
-
-        o2.connect(
-            mix
-        );
-
-
-        mix.connect(
-            mod
-        );
-
-        mod.connect(
-            master
-        );
-
-
-        o1.start();
-
-        o2.start();
-
-        lfo.start();
-
-
-        o1.stop(
-            ctx.currentTime
-            +
-            duration
-            +
-            1
-        );
-
-        o2.stop(
-            ctx.currentTime
-            +
-            duration
-            +
-            1
-        );
-
-        lfo.stop(
-            ctx.currentTime
-            +
-            duration
-            +
-            1
-        );
-
-
-        nodes.push(
-            o1,
-            o2,
-            lfo,
-            mix,
-            mod,
-            lfoDepth
-        );
-
-    }}
-
-
-    function createSound() {{
-
-        master =
-            ctx.createGain();
-
-
-        const requested =
-            parseFloat(
-                document
-                    .getElementById(
-                        'soundVol'
-                    )
-                    .value
-            );
-
-
-        master.gain.setValueAtTime(
-            0.0001,
-            ctx.currentTime
-        );
-
-
-        master.gain
-            .exponentialRampToValueAtTime(
-                Math.max(
-                    requested,
-                    0.001
-                ),
-                ctx.currentTime
-                +
-                0.7
-            );
-
-
-        master.connect(
-            ctx.destination
-        );
-
-
-        if (
-            mode
-            ===
-            'amor'
-        ) {{
-
-            createBinaural(
-                150,
-                [
-                    [0, 8, 'set'],
-                    [120, 10, 'set'],
-                    [600, 10, 'set'],
-                    [duration, 20, 'ramp']
-                ]
-            );
-
-        }}
-
-        else if (
-            mode
-            ===
-            'proximo'
-        ) {{
-
-            createBinaural(
-                145,
-                [
-                    [0, 10, 'set'],
-                    [
-                        Math.max(
-                            duration - 120,
-                            0
-                        ),
-                        10,
-                        'set'
-                    ],
-                    [
-                        duration,
-                        12,
-                        'ramp'
-                    ]
-                ]
-            );
-
-        }}
-
-        else if (
-            mode
-            ===
-            'anseio'
-        ) {{
-
-            const p1 =
-                duration
-                *
-                0.20;
-
-            const p2 =
-                duration
-                *
-                0.50;
-
-            const p3 =
-                duration
-                *
-                0.80;
-
-
-            createBinaural(
-                110,
-                [
-                    [0, 8, 'set'],
-                    [p1, 10, 'set'],
-                    [p2, 10, 'set'],
-                    [p3, 14, 'ramp'],
-                    [duration, 18, 'ramp']
-                ]
-            );
-
-        }}
-
-        else if (
-            mode
-            ===
-            'noturno'
-        ) {{
-
-            createMonauralIso();
-
-        }}
-
-    }}
-
-
-    function playVoice(
-        src,
-        label
-    ) {{
-
-        return new Promise(
-            resolve => {{
-
-                if (!src) {{
-
-                    resolve();
-
-                    return;
-
-                }}
-
-
-                if (activeVoice) {{
-
-                    try {{
-
-                        activeVoice.pause();
-
-                    }}
-                    catch(e) {{}}
-
-                }}
-
-
-                const a =
-                    new Audio(src);
-
-
-                activeVoice =
-                    a;
-
-
-                a.volume =
-                    parseFloat(
-                        document
-                            .getElementById(
-                                'voiceVol'
-                            )
-                            .value
-                    );
+    points
+        .slice(1)
+        .forEach(
+            function (p) {
+
+                const t =
+                    ctx.currentTime
+                    +
+                    p[0];
+
+                const value =
+                    base
+                    +
+                    p[1];
 
 
                 if (
-                    master
-                    &&
-                    ctx
-                ) {{
+                    p[2]
+                    ===
+                    "ramp"
+                ) {
 
-                    master.gain
-                        .cancelScheduledValues(
-                            ctx.currentTime
-                        );
-
-
-                    master.gain
+                    right.frequency
                         .linearRampToValueAtTime(
-                            0.018,
-                            ctx.currentTime
-                            +
-                            0.25
+                            value,
+                            t
                         );
 
-                }}
+                }
+
+                else {
+
+                    right.frequency
+                        .setValueAtTime(
+                            value,
+                            t
+                        );
+
+                }
+
+            }
+        );
 
 
-                status(
-                    label
+    left.connect(
+        gL
+    );
+
+    right.connect(
+        gR
+    );
+
+
+    gL.connect(
+        merger,
+        0,
+        0
+    );
+
+    gR.connect(
+        merger,
+        0,
+        1
+    );
+
+
+    merger.connect(
+        master
+    );
+
+
+    left.start();
+
+    right.start();
+
+
+    left.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+    right.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+
+    nodes.push(
+        left,
+        right,
+        gL,
+        gR,
+        merger
+    );
+
+}
+
+
+function createMonauralIso() {
+
+    const mix =
+        ctx.createGain();
+
+    const o1 =
+        ctx.createOscillator();
+
+    const o2 =
+        ctx.createOscillator();
+
+    const mod =
+        ctx.createGain();
+
+    const lfo =
+        ctx.createOscillator();
+
+    const lfoDepth =
+        ctx.createGain();
+
+
+    mix.gain.value =
+        0.50;
+
+
+    o1.type =
+        "sine";
+
+    o2.type =
+        "sine";
+
+
+    o1.frequency.value =
+        100;
+
+
+    // 0:00 até 29:30
+    // diferença monaural de 6 Hz
+
+    o2.frequency.setValueAtTime(
+        106,
+        ctx.currentTime
+    );
+
+    o2.frequency.setValueAtTime(
+        106,
+        ctx.currentTime
+        +
+        1770
+    );
+
+
+    // 29:30 até 30:30
+    // transição 6 Hz → 2,5 Hz
+
+    o2.frequency
+        .linearRampToValueAtTime(
+            102.5,
+            ctx.currentTime
+            +
+            1830
+        );
+
+
+    // 30:30 até 60:00
+
+    o2.frequency.setValueAtTime(
+        102.5,
+        ctx.currentTime
+        +
+        3600
+    );
+
+
+    mod.gain.value =
+        0.59;
+
+
+    lfo.type =
+        "sine";
+
+
+    lfo.frequency.setValueAtTime(
+        6,
+        ctx.currentTime
+    );
+
+    lfo.frequency.setValueAtTime(
+        6,
+        ctx.currentTime
+        +
+        1770
+    );
+
+
+    lfo.frequency
+        .linearRampToValueAtTime(
+            2.5,
+            ctx.currentTime
+            +
+            1830
+        );
+
+
+    lfo.frequency.setValueAtTime(
+        2.5,
+        ctx.currentTime
+        +
+        3600
+    );
+
+
+    lfoDepth.gain.value =
+        0.41;
+
+
+    lfo.connect(
+        lfoDepth
+    );
+
+    lfoDepth.connect(
+        mod.gain
+    );
+
+
+    o1.connect(
+        mix
+    );
+
+    o2.connect(
+        mix
+    );
+
+
+    mix.connect(
+        mod
+    );
+
+    mod.connect(
+        master
+    );
+
+
+    o1.start();
+
+    o2.start();
+
+    lfo.start();
+
+
+    o1.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+    o2.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+    lfo.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+
+    nodes.push(
+        o1,
+        o2,
+        lfo,
+        mix,
+        mod,
+        lfoDepth
+    );
+
+}
+
+
+function createSound() {
+
+    master =
+        ctx.createGain();
+
+
+    const requested =
+        parseFloat(
+            document
+                .getElementById(
+                    "soundVol"
+                )
+                .value
+        );
+
+
+    // O áudio entra rápido:
+    // 0,2 s após a voz,
+    // chegando ao volume em 0,7 s.
+
+    master.gain.setValueAtTime(
+        0.0001,
+        ctx.currentTime
+    );
+
+
+    master.gain
+        .exponentialRampToValueAtTime(
+            Math.max(
+                requested,
+                0.001
+            ),
+            ctx.currentTime
+            +
+            0.7
+        );
+
+
+    master.connect(
+        ctx.destination
+    );
+
+
+    if (
+        mode
+        ===
+        "amor"
+    ) {
+
+        createBinaural(
+            150,
+            [
+                [
+                    0,
+                    8,
+                    "set"
+                ],
+                [
+                    120,
+                    10,
+                    "set"
+                ],
+                [
+                    600,
+                    10,
+                    "set"
+                ],
+                [
+                    duration,
+                    20,
+                    "ramp"
+                ]
+            ]
+        );
+
+    }
+
+
+    else if (
+        mode
+        ===
+        "proximo"
+    ) {
+
+        createBinaural(
+            145,
+            [
+                [
+                    0,
+                    10,
+                    "set"
+                ],
+                [
+                    Math.max(
+                        duration
+                        -
+                        120,
+                        0
+                    ),
+                    10,
+                    "set"
+                ],
+                [
+                    duration,
+                    12,
+                    "ramp"
+                ]
+            ]
+        );
+
+    }
+
+
+    else if (
+        mode
+        ===
+        "anseio"
+    ) {
+
+        const p1 =
+            duration
+            *
+            0.20;
+
+        const p2 =
+            duration
+            *
+            0.50;
+
+        const p3 =
+            duration
+            *
+            0.80;
+
+
+        createBinaural(
+            110,
+            [
+                [
+                    0,
+                    8,
+                    "set"
+                ],
+                [
+                    p1,
+                    10,
+                    "set"
+                ],
+                [
+                    p2,
+                    10,
+                    "set"
+                ],
+                [
+                    p3,
+                    14,
+                    "ramp"
+                ],
+                [
+                    duration,
+                    18,
+                    "ramp"
+                ]
+            ]
+        );
+
+    }
+
+
+    else if (
+        mode
+        ===
+        "noturno"
+    ) {
+
+        createMonauralIso();
+
+    }
+
+}
+
+
+function playVoice(
+    src,
+    label
+) {
+
+    return new Promise(
+        function (resolve) {
+
+            if (!src) {
+
+                resolve();
+
+                return;
+
+            }
+
+
+            if (activeVoice) {
+
+                try {
+
+                    activeVoice.pause();
+
+                }
+
+                catch (e) {}
+
+            }
+
+
+            const audio =
+                new Audio(src);
+
+
+            activeVoice =
+                audio;
+
+
+            audio.volume =
+                parseFloat(
+                    document
+                        .getElementById(
+                            "voiceVol"
+                        )
+                        .value
                 );
 
 
-                a.onended =
-                    () => {{
+            // Abaixa o som enquanto
+            // a voz orienta.
 
-                        if (
-                            master
-                            &&
-                            ctx
-                            &&
-                            !stopped
-                        ) {{
+            if (
+                master
+                &&
+                ctx
+            ) {
 
-                            const v =
-                                parseFloat(
-                                    document
-                                        .getElementById(
-                                            'soundVol'
-                                        )
-                                        .value
-                                );
+                const atual =
+                    Math.max(
+                        master.gain.value,
+                        0.001
+                    );
 
 
-                            master.gain
-                                .cancelScheduledValues(
-                                    ctx.currentTime
-                                );
+                master.gain
+                    .cancelScheduledValues(
+                        ctx.currentTime
+                    );
 
 
-                            master.gain
-                                .linearRampToValueAtTime(
-                                    Math.max(
-                                        v,
-                                        0.001
-                                    ),
-                                    ctx.currentTime
-                                    +
-                                    0.7
-                                );
+                master.gain
+                    .setValueAtTime(
+                        atual,
+                        ctx.currentTime
+                    );
 
-                        }}
 
+                master.gain
+                    .linearRampToValueAtTime(
+                        0.018,
+                        ctx.currentTime
+                        +
+                        0.25
+                    );
+
+            }
+
+
+            status(
+                label
+            );
+
+
+            audio.onended =
+                function () {
+
+                    if (
+                        master
+                        &&
+                        ctx
+                        &&
+                        !stopped
+                    ) {
+
+                        const volume =
+                            parseFloat(
+                                document
+                                    .getElementById(
+                                        "soundVol"
+                                    )
+                                    .value
+                            );
+
+
+                        master.gain
+                            .cancelScheduledValues(
+                                ctx.currentTime
+                            );
+
+
+                        master.gain
+                            .setValueAtTime(
+                                Math.max(
+                                    master.gain.value,
+                                    0.001
+                                ),
+                                ctx.currentTime
+                            );
+
+
+                        master.gain
+                            .linearRampToValueAtTime(
+                                Math.max(
+                                    volume,
+                                    0.001
+                                ),
+                                ctx.currentTime
+                                +
+                                0.7
+                            );
+
+                    }
+
+
+                    activeVoice =
+                        null;
+
+
+                    status(
+                        "🎵 Continue a prática..."
+                    );
+
+
+                    resolve();
+
+                };
+
+
+            audio.onerror =
+                function () {
+
+                    activeVoice =
+                        null;
+
+                    resolve();
+
+                };
+
+
+            audio
+                .play()
+                .catch(
+                    function () {
 
                         activeVoice =
                             null;
 
-
                         resolve();
 
-                    };
+                    }
+                );
+
+        }
+    );
+
+}
 
 
-                a.onerror =
-                    () => resolve();
+async function beginTone() {
+
+    if (stopped)
+        return;
 
 
-                a.play()
-                    .catch(
-                        () => resolve()
-                    );
-
-            }}
-        );
-
-    }}
-
-
-    async function beginTone() {{
-
-        if (stopped)
-            return;
-
-
-        if (
-            !ctx
-            ||
-            ctx.state
-            ===
-            'closed'
-        ) {{
-
-            makeContext();
-
-        }}
-
-
-        try {{
-
-            if (
-                ctx.state
-                !==
-                'running'
-            ) {{
-
-                await ctx.resume();
-
-            }}
-
-        }}
-        catch(e) {{}}
-
-
-        stopKeepAlive();
-
-
-        createSound();
-
-
-        startCtxTime =
-            ctx.currentTime;
-
-
-        status(
-            '🎵 Áudio iniciado automaticamente.'
-        );
-
-
-        prompts.forEach(
-            p => p.played = false
-        );
-
-
-        timer =
-            setInterval(
-                () => {{
-
-                    if (
-                        !ctx
-                        ||
-                        startCtxTime
-                        ===
-                        null
-                        ||
-                        stopped
-                    ) {{
-
-                        return;
-
-                    }}
-
-
-                    const elapsed =
-                        Math.min(
-                            duration,
-                            ctx.currentTime
-                            -
-                            startCtxTime
-                        );
-
-
-                    document
-                        .getElementById(
-                            'clock'
-                        )
-                        .innerText =
-                            `${{fmt(elapsed)}} / ${{fmt(duration)}}`;
-
-
-                    document
-                        .getElementById(
-                            'bar'
-                        )
-                        .style
-                        .width =
-                            `${{
-                                (
-                                    elapsed
-                                    /
-                                    duration
-                                )
-                                *
-                                100
-                            }}%`;
-
-
-                    prompts.forEach(
-                        p => {{
-
-                            if (
-                                !p.played
-                                &&
-                                elapsed
-                                >=
-                                p.at
-                            ) {{
-
-                                p.played =
-                                    true;
-
-
-                                playVoice(
-                                    p.src,
-                                    '🎙️ Orientação durante a prática'
-                                );
-
-                            }}
-
-                        }}
-                    );
-
-
-                    if (
-                        elapsed
-                        >=
-                        duration
-                    ) {{
-
-                        finishSession();
-
-                    }}
-
-                }},
-                500
-            );
-
-    }}
-
-
-    async function startSession() {{
-
-        stopSession(
-            false
-        );
-
-
-        stopped =
-            false;
-
-        paused =
-            false;
-
+    if (
+        !ctx
+        ||
+        ctx.state
+        ===
+        "closed"
+    ) {
 
         makeContext();
 
+    }
 
-        try {{
+
+    try {
+
+        if (
+            ctx.state
+            !==
+            "running"
+        ) {
 
             await ctx.resume();
 
-        }}
-        catch(e) {{}}
+        }
+
+    }
+
+    catch (e) {}
 
 
-        startKeepAlive();
+    stopKeepAlive();
 
 
-        status(
-            '🎙️ Narração inicial...'
-        );
+    createSound();
 
 
-        document
-            .getElementById(
-                'bar'
-            )
-            .style
-            .width =
-                '0%';
+    startCtxTime =
+        ctx.currentTime;
 
 
-        document
-            .getElementById(
-                'clock'
-            )
-            .innerText =
-                'Narração inicial';
+    status(
+        "🎵 Áudio iniciado automaticamente."
+    );
 
 
-        introAudio =
-            new Audio(
-                introSrc
-            );
+    prompts.forEach(
+        function (p) {
+
+            p.played =
+                false;
+
+        }
+    );
 
 
-        introAudio.volume =
-            parseFloat(
-                document
-                    .getElementById(
-                        'voiceVol'
-                    )
-                    .value
-            );
+    timer =
+        setInterval(
+            function () {
 
+                if (
+                    !ctx
+                    ||
+                    startCtxTime
+                    ===
+                    null
+                    ||
+                    stopped
+                ) {
 
-        introAudio.onended =
-            () => {{
-
-                if (stopped)
                     return;
 
-
-                status(
-                    '🎵 Entrando no áudio...'
-                );
+                }
 
 
-                setTimeout(
-                    () =>
-                        beginTone(),
-                    pauseAfterVoice
-                );
-
-            }};
-
-
-        introAudio.onerror =
-            () => {{
-
-                setTimeout(
-                    () =>
-                        beginTone(),
-                    pauseAfterVoice
-                );
-
-            }};
-
-
-        introAudio
-            .play()
-            .catch(
-                () => {{
-
-                    status(
-                        'O navegador bloqueou a voz. '
-                        +
-                        'Toque novamente em Iniciar sessão.'
+                const elapsed =
+                    Math.min(
+                        duration,
+                        ctx.currentTime
+                        -
+                        startCtxTime
                     );
 
-                }}
-            );
 
-    }}
-
-
-    // ========================================================
-    // PAUSAR
-    // ========================================================
-
-    function pauseSession() {{
-
-        if (stopped)
-            return;
-
-
-        paused =
-            true;
-
-
-        if (
-            introAudio
-            &&
-            !introAudio.paused
-        ) {{
-
-            introAudio.pause();
-
-        }}
-
-
-        if (
-            activeVoice
-            &&
-            !activeVoice.paused
-        ) {{
-
-            activeVoice.pause();
-
-        }}
-
-
-        if (
-            ctx
-            &&
-            ctx.state
-            ===
-            'running'
-        ) {{
-
-            ctx.suspend();
-
-        }}
-
-
-        status(
-            '⏸ Sessão pausada.'
-        );
-
-    }}
-
-
-    // ========================================================
-    // CONTINUAR
-    // ========================================================
-
-    function resumeSession() {{
-
-        if (stopped)
-            return;
-
-
-        paused =
-            false;
-
-
-        if (
-            ctx
-            &&
-            ctx.state
-            ===
-            'suspended'
-        ) {{
-
-            ctx.resume();
-
-        }}
-
-
-        if (
-            activeVoice
-            &&
-            activeVoice.paused
-        ) {{
-
-            activeVoice
-                .play()
-                .catch(
-                    () => {{}}
-                );
-
-        }}
-
-        else if (
-            introAudio
-            &&
-            introAudio.paused
-            &&
-            startCtxTime
-            ===
-            null
-        ) {{
-
-            introAudio
-                .play()
-                .catch(
-                    () => {{}}
-                );
-
-        }}
-
-
-        status(
-            '▶ Sessão retomada.'
-        );
-
-    }}
-
-
-    // ========================================================
-    // PARAR
-    // ========================================================
-
-    function stopSession(
-        show=true
-    ) {{
-
-        stopped =
-            true;
-
-        paused =
-            false;
-
-
-        if (timer) {{
-
-            clearInterval(
-                timer
-            );
-
-            timer =
-                null;
-
-        }}
-
-
-        if (introAudio) {{
-
-            try {{
-
-                introAudio.pause();
-
-                introAudio.currentTime =
-                    0;
-
-            }}
-            catch(e) {{}}
-
-        }}
-
-
-        if (activeVoice) {{
-
-            try {{
-
-                activeVoice.pause();
-
-                activeVoice.currentTime =
-                    0;
-
-            }}
-            catch(e) {{}}
-
-        }}
-
-
-        nodes.forEach(
-            n => {{
-
-                try {{
-
-                    if (n.stop) {{
-
-                        n.stop();
-
-                    }}
-
-                }}
-                catch(e) {{}}
-
-            }}
-        );
-
-
-        nodes = [];
-
-
-        stopKeepAlive();
-
-
-        if (
-            ctx
-            &&
-            ctx.state
-            !==
-            'closed'
-        ) {{
-
-            try {{
-
-                ctx.close();
-
-            }}
-            catch(e) {{}}
-
-        }}
-
-
-        ctx =
-            null;
-
-        master =
-            null;
-
-        startCtxTime =
-            null;
-
-
-        if (show) {{
-
-            status(
-                '⏹ Sessão encerrada.'
-            );
-
-
-            document
-                .getElementById(
-                    'bar'
-                )
-                .style
-                .width =
-                    '0%';
-
-
-            document
-                .getElementById(
-                    'clock'
-                )
-                .innerText =
-                    '00:00';
-
-        }}
-
-    }}
-
-
-    function finishSession() {{
-
-        if (timer) {{
-
-            clearInterval(
-                timer
-            );
-
-            timer =
-                null;
-
-        }}
-
-
-        if (
-            master
-            &&
-            ctx
-        ) {{
-
-            master.gain
-                .cancelScheduledValues(
-                    ctx.currentTime
+                document
+                    .getElementById(
+                        "clock"
+                    )
+                    .innerText =
+                        fmt(elapsed)
+                        +
+                        " / "
+                        +
+                        fmt(duration);
+
+
+                document
+                    .getElementById(
+                        "bar"
+                    )
+                    .style
+                    .width =
+                        (
+                            (
+                                elapsed
+                                /
+                                duration
+                            )
+                            *
+                            100
+                        )
+                        .toFixed(2)
+                        +
+                        "%";
+
+
+                prompts.forEach(
+                    function (p) {
+
+                        if (
+                            !p.played
+                            &&
+                            elapsed
+                            >=
+                            p.at
+                        ) {
+
+                            p.played =
+                                true;
+
+
+                            playVoice(
+                                p.src,
+                                "🎙️ Orientação durante a prática"
+                            );
+
+                        }
+
+                    }
                 );
 
 
-            master.gain
-                .exponentialRampToValueAtTime(
-                    0.0001,
-                    ctx.currentTime
-                    +
-                    4
-                );
+                if (
+                    elapsed
+                    >=
+                    duration
+                ) {
 
-        }}
+                    finishSession();
 
+                }
 
-        status(
-            '✅ Sessão concluída.'
+            },
+            500
         );
 
-
-        document
-            .getElementById(
-                'bar'
-            )
-            .style
-            .width =
-                '100%';
+}
 
 
-        setTimeout(
-            () =>
-                stopSession(false),
-            4500
-        );
+async function startSession() {
 
-    }}
+    stopSession(
+        false
+    );
+
+
+    stopped =
+        false;
+
+    paused =
+        false;
+
+
+    makeContext();
+
+
+    try {
+
+        await ctx.resume();
+
+    }
+
+    catch (e) {}
+
+
+    // Mantém o AudioContext ativo
+    // durante a narração.
+
+    startKeepAlive();
+
+
+    status(
+        "🎙️ Narração inicial..."
+    );
 
 
     document
         .getElementById(
-            'soundVol'
+            "bar"
         )
-        .addEventListener(
-            'input',
-            e => {{
+        .style
+        .width =
+            "0%";
 
-                if (
-                    master
-                    &&
-                    ctx
-                    &&
-                    !stopped
-                ) {{
 
-                    master.gain
-                        .setTargetAtTime(
-                            parseFloat(
-                                e.target.value
-                            ),
-                            ctx.currentTime,
-                            0.2
-                        );
+    document
+        .getElementById(
+            "clock"
+        )
+        .innerText =
+            "Narração inicial";
 
-                }}
 
-            }}
+    introAudio =
+        new Audio(
+            introSrc
         );
 
-    </script>
-    """
+
+    introAudio.volume =
+        parseFloat(
+            document
+                .getElementById(
+                    "voiceVol"
+                )
+                .value
+        );
+
+
+    introAudio.onended =
+        function () {
+
+            if (stopped)
+                return;
+
+
+            status(
+                "🎵 Entrando no áudio..."
+            );
+
+
+            // Apenas 0,2 segundo
+            // entre a narração
+            // e o início do som.
+
+            setTimeout(
+                function () {
+
+                    beginTone();
+
+                },
+                pauseAfterVoice
+            );
+
+        };
+
+
+    introAudio.onerror =
+        function () {
+
+            setTimeout(
+                function () {
+
+                    beginTone();
+
+                },
+                pauseAfterVoice
+            );
+
+        };
+
+
+    introAudio
+        .play()
+        .catch(
+            function () {
+
+                status(
+                    "O navegador bloqueou a voz. "
+                    +
+                    "Toque novamente em Iniciar sessão."
+                );
+
+            }
+        );
+
+}
+
+
+// ========================================================
+// PAUSAR
+// ========================================================
+
+function pauseSession() {
+
+    if (stopped)
+        return;
+
+
+    paused =
+        true;
+
+
+    if (
+        introAudio
+        &&
+        !introAudio.paused
+    ) {
+
+        introAudio.pause();
+
+    }
+
+
+    if (
+        activeVoice
+        &&
+        !activeVoice.paused
+    ) {
+
+        activeVoice.pause();
+
+    }
+
+
+    if (
+        ctx
+        &&
+        ctx.state
+        ===
+        "running"
+    ) {
+
+        ctx.suspend();
+
+    }
+
+
+    status(
+        "⏸ Sessão pausada."
+    );
+
+}
+
+
+// ========================================================
+// CONTINUAR
+// ========================================================
+
+function resumeSession() {
+
+    if (stopped)
+        return;
+
+
+    paused =
+        false;
+
+
+    if (
+        ctx
+        &&
+        ctx.state
+        ===
+        "suspended"
+    ) {
+
+        ctx.resume();
+
+    }
+
+
+    if (
+        activeVoice
+        &&
+        activeVoice.paused
+    ) {
+
+        activeVoice
+            .play()
+            .catch(
+                function () {}
+            );
+
+    }
+
+
+    else if (
+        introAudio
+        &&
+        introAudio.paused
+        &&
+        startCtxTime
+        ===
+        null
+    ) {
+
+        introAudio
+            .play()
+            .catch(
+                function () {}
+            );
+
+    }
+
+
+    status(
+        "▶ Sessão retomada."
+    );
+
+}
+
+
+// ========================================================
+// PARAR
+// ========================================================
+
+function stopSession(
+    showStatus
+) {
+
+    if (
+        typeof showStatus
+        ===
+        "undefined"
+    ) {
+
+        showStatus =
+            true;
+
+    }
+
+
+    stopped =
+        true;
+
+    paused =
+        false;
+
+
+    if (timer) {
+
+        clearInterval(
+            timer
+        );
+
+        timer =
+            null;
+
+    }
+
+
+    if (introAudio) {
+
+        try {
+
+            introAudio.pause();
+
+            introAudio.currentTime =
+                0;
+
+        }
+
+        catch (e) {}
+
+    }
+
+
+    if (activeVoice) {
+
+        try {
+
+            activeVoice.pause();
+
+            activeVoice.currentTime =
+                0;
+
+        }
+
+        catch (e) {}
+
+    }
+
+
+    nodes.forEach(
+        function (node) {
+
+            try {
+
+                if (node.stop) {
+
+                    node.stop();
+
+                }
+
+            }
+
+            catch (e) {}
+
+
+            try {
+
+                if (node.disconnect) {
+
+                    node.disconnect();
+
+                }
+
+            }
+
+            catch (e) {}
+
+        }
+    );
+
+
+    nodes = [];
+
+
+    stopKeepAlive();
+
+
+    if (
+        ctx
+        &&
+        ctx.state
+        !==
+        "closed"
+    ) {
+
+        try {
+
+            ctx.close();
+
+        }
+
+        catch (e) {}
+
+    }
+
+
+    ctx =
+        null;
+
+    master =
+        null;
+
+    startCtxTime =
+        null;
+
+    introAudio =
+        null;
+
+    activeVoice =
+        null;
+
+
+    if (showStatus) {
+
+        status(
+            "⏹ Sessão encerrada."
+        );
+
+
+        document
+            .getElementById(
+                "bar"
+            )
+            .style
+            .width =
+                "0%";
+
+
+        document
+            .getElementById(
+                "clock"
+            )
+            .innerText =
+                "00:00";
+
+    }
+
+}
+
+
+function finishSession() {
+
+    if (timer) {
+
+        clearInterval(
+            timer
+        );
+
+        timer =
+            null;
+
+    }
+
+
+    if (
+        master
+        &&
+        ctx
+    ) {
+
+        const atual =
+            Math.max(
+                master.gain.value,
+                0.001
+            );
+
+
+        master.gain
+            .cancelScheduledValues(
+                ctx.currentTime
+            );
+
+
+        master.gain
+            .setValueAtTime(
+                atual,
+                ctx.currentTime
+            );
+
+
+        master.gain
+            .exponentialRampToValueAtTime(
+                0.0001,
+                ctx.currentTime
+                +
+                4
+            );
+
+    }
+
+
+    status(
+        "✅ Sessão concluída."
+    );
+
+
+    document
+        .getElementById(
+            "bar"
+        )
+        .style
+        .width =
+            "100%";
+
+
+    setTimeout(
+        function () {
+
+            stopSession(
+                false
+            );
+
+        },
+        4500
+    );
+
+}
+
+
+document
+    .getElementById(
+        "soundVol"
+    )
+    .addEventListener(
+
+        "input",
+
+        function (event) {
+
+            if (
+                master
+                &&
+                ctx
+                &&
+                !stopped
+            ) {
+
+                master.gain
+                    .setTargetAtTime(
+                        parseFloat(
+                            event.target.value
+                        ),
+                        ctx.currentTime,
+                        0.2
+                    );
+
+            }
+
+        }
+
+    );
+
+</script>
+'''
+
+    html_code = (
+        html_code
+        .replace(
+            "__TITLE__",
+            titulo
+        )
+        .replace(
+            "__INTRO__",
+            json.dumps(
+                intro_uri,
+                ensure_ascii=False
+            )
+        )
+        .replace(
+            "__PROMPTS__",
+            json.dumps(
+                prompt_payload,
+                ensure_ascii=False
+            )
+        )
+        .replace(
+            "__DURATION__",
+            str(
+                float(
+                    duracao_seg
+                )
+            )
+        )
+        .replace(
+            "__MODE__",
+            json.dumps(
+                modo
+            )
+        )
+        .replace(
+            "__PAUSE_MS__",
+            str(
+                float(
+                    pausa_apos_voz
+                )
+                *
+                1000
+            )
+        )
+    )
 
     components.html(
-        html,
+        html_code,
         height=altura
     )
 
 
 # ============================================================
-# ROTEIROS — AMOR A DEUS
+# ETAPA 1 — AMOR A DEUS
 # ============================================================
 
 INTRO_AMOR = (
@@ -1798,6 +2039,8 @@ INTRO_AMOR = (
     "Inspire suavemente e expire devagar. "
     "Não tente fabricar nenhuma emoção. "
     "Apenas desacelere. "
+    "Observe também o pensamento que estava ocupando sua mente antes de começar. "
+    "Não lute contra ele. Apenas perceba. "
     "Daqui a pouco o som começará sozinho. "
     "Permaneça presente e permita que a gratidão "
     "abra espaço para o Amor a Deus."
@@ -1808,23 +2051,32 @@ PROMPTS_AMOR = [
 
     (
         120,
+
         "Agora recorde algo concreto "
         "pelo qual você agradece profundamente a Deus. "
         "Não fique apenas na ideia. "
-        "Permita que a gratidão seja sentida."
+        "Permita que a gratidão seja sentida. "
+        "Observe o que acontece com sua mente "
+        "enquanto permanece na gratidão."
     ),
 
     (
         420,
+
         "Pergunte em silêncio: "
         "se eu viver a partir deste Amor a Deus hoje, "
-        "o que muda na maneira como penso?"
+        "o que muda na maneira como penso? "
+        "Que pensamento pode ser visto "
+        "de uma nova maneira?"
     ),
 
     (
         600,
-        "Escolha uma ação concreta "
-        "que expresse o Amor recebido. "
+
+        "Compare seu estado atual "
+        "com o início da prática. "
+        "Agora escolha uma ação concreta "
+        "que expresse esse Amor. "
         "Agradecer, ajudar, pedir perdão, "
         "escutar, acolher ou servir."
     ),
@@ -1833,12 +2085,16 @@ PROMPTS_AMOR = [
 
 
 # ============================================================
-# ROTEIROS — AMOR AO PRÓXIMO
+# ETAPA 2 — AMOR AO PRÓXIMO
 # ============================================================
 
 INTRO_PROXIMO = (
     "Traga à mente uma pessoa. "
-    "Comece não pelo problema dela, "
+    "Antes de pensar sobre o que ela fez "
+    "ou deixou de fazer, "
+    "observe qual julgamento aparece primeiro em sua mente. "
+    "Não lute contra ele. Apenas perceba. "
+    "Agora comece não pelo problema dessa pessoa, "
     "mas pelo Amor. "
     "Reconheça que diante de você existe "
     "uma vida com valor, história, medos, "
@@ -1855,6 +2111,7 @@ PROMPTS_PROXIMO = [
 
     (
         120,
+
         "Pergunte: "
         "o que eu realmente sei "
         "sobre o que essa pessoa está vivendo? "
@@ -1863,6 +2120,7 @@ PROMPTS_PROXIMO = [
 
     (
         300,
+
         "O que ela pode estar sentindo "
         "ou precisando? "
         "Ser ouvida, respeitada, compreendida, "
@@ -1871,7 +2129,10 @@ PROMPTS_PROXIMO = [
 
     (
         480,
-        "Pergunte agora: "
+
+        "Observe novamente seu julgamento inicial. "
+        "Você percebe algo diferente agora? "
+        "Pergunte: "
         "o que significa amar esta pessoa hoje? "
         "Escolha um gesto concreto de cuidado."
     ),
@@ -1880,7 +2141,7 @@ PROMPTS_PROXIMO = [
 
 
 # ============================================================
-# ROTEIRO — INTEGRAÇÃO NOTURNA
+# ETAPA 4 — INTEGRAÇÃO NOTURNA
 # ============================================================
 
 INTRO_NOTURNO = (
@@ -1892,6 +2153,8 @@ INTRO_NOTURNO = (
     "e expire um pouco mais devagar. "
     "Recorde algo bom deste dia "
     "e agradeça. "
+    "Se algum pensamento aparecer, "
+    "observe sem precisar segui-lo. "
     "Quando minha voz terminar, "
     "o áudio de uma hora começará "
     "quase imediatamente. "
@@ -1901,7 +2164,7 @@ INTRO_NOTURNO = (
 
 
 # ============================================================
-# ROTEIRO — ANSEIO E PROPÓSITO
+# ETAPA 3 — ANSEIO E PROPÓSITO
 # ============================================================
 
 def roteiro_anseio(
@@ -1918,17 +2181,18 @@ def roteiro_anseio(
     if desejo:
 
         foco = (
-            f"O seu anseio escolhido é: "
-            f"{desejo}."
+            "O seu anseio escolhido é: "
+            +
+            desejo
+            +
+            ". "
         )
 
     else:
 
         foco = (
-            "Escolha agora "
-            "um anseio verdadeiro "
-            "e significativo "
-            "para a sua vida."
+            "Escolha agora um anseio verdadeiro "
+            "e significativo para a sua vida. "
         )
 
 
@@ -1940,10 +2204,16 @@ def roteiro_anseio(
         "Perceba a respiração "
         "e o coração. "
 
-        + foco +
+        +
+        foco
 
-        " Pergunte por que isso "
+        +
+        "Pergunte por que isso "
         "é realmente importante para você. "
+
+        "Pergunte também "
+        "o que você acredita que sentiria "
+        "se isso acontecesse. "
 
         "Conecte esse anseio ao Amor. "
 
@@ -1962,6 +2232,7 @@ def roteiro_anseio(
 
         (
             120,
+
             "Recorde algo "
             "pelo qual você já é grato. "
             "Gratidão ajuda a sair "
@@ -1971,15 +2242,19 @@ def roteiro_anseio(
 
         (
             300,
+
             "Imagine como seria viver "
             "de maneira coerente "
             "com esse anseio. "
             "Observe os pensamentos "
-            "e possibilidades que surgem."
+            "e possibilidades que surgem. "
+            "Quais pensamentos ajudam você a caminhar "
+            "e quais apenas repetem medo?"
         ),
 
         (
             480,
+
             "Agora transforme "
             "a visão em compromisso. "
             "Qual é o menor passo real "
@@ -1996,7 +2271,7 @@ def roteiro_anseio(
 
 
 # ============================================================
-# CONTROLES GERAIS
+# VOZ
 # ============================================================
 
 with st.sidebar:
@@ -2044,7 +2319,7 @@ with st.sidebar:
 
 
 # ============================================================
-# ESCOLHA DA ETAPA
+# ETAPAS
 # ============================================================
 
 etapa = st.radio(
@@ -2067,7 +2342,7 @@ st.divider()
 
 
 # ============================================================
-# ETAPA 1 — AMOR A DEUS
+# ETAPA 1
 # ============================================================
 
 if etapa.startswith(
@@ -2094,14 +2369,19 @@ Use fones de ouvido para a experiência binaural.
 
     sessao_guiada(
 
-        "Amor a DEUS e Gratidão",
+        titulo=
+            "Amor a DEUS e Gratidão",
 
-        INTRO_AMOR,
+        intro_texto=
+            INTRO_AMOR,
 
-        PROMPTS_AMOR,
+        prompts=
+            PROMPTS_AMOR,
 
         duracao_seg=
-            12 * 60,
+            12
+            *
+            60,
 
         modo=
             "amor",
@@ -2130,7 +2410,7 @@ Use fones de ouvido para a experiência binaural.
 
 
 # ============================================================
-# ETAPA 2 — AMOR AO PRÓXIMO
+# ETAPA 2
 # ============================================================
 
 elif etapa.startswith(
@@ -2155,14 +2435,19 @@ A empatia é a ponte.
 
     sessao_guiada(
 
-        "Amor ao Próximo e Empatia",
+        titulo=
+            "Amor ao Próximo e Empatia",
 
-        INTRO_PROXIMO,
+        intro_texto=
+            INTRO_PROXIMO,
 
-        PROMPTS_PROXIMO,
+        prompts=
+            PROMPTS_PROXIMO,
 
         duracao_seg=
-            10 * 60,
+            10
+            *
+            60,
 
         modo=
             "proximo",
@@ -2205,7 +2490,7 @@ A empatia é a ponte.
 
 
 # ============================================================
-# ETAPA 3 — ANSEIO E PROPÓSITO
+# ETAPA 3
 # ============================================================
 
 elif etapa.startswith(
@@ -2256,14 +2541,19 @@ elif etapa.startswith(
 
     sessao_guiada(
 
-        "Anseio, Fé, Visão e Ação",
+        titulo=
+            "Anseio, Fé, Visão e Ação",
 
-        intro_anseio,
+        intro_texto=
+            intro_anseio,
 
-        prompts_anseio,
+        prompts=
+            prompts_anseio,
 
         duracao_seg=
-            10 * 60,
+            10
+            *
+            60,
 
         modo=
             "anseio",
@@ -2292,7 +2582,7 @@ elif etapa.startswith(
 
 
 # ============================================================
-# ETAPA 4 — INTEGRAÇÃO NOTURNA
+# ETAPA 4
 # ============================================================
 
 else:
@@ -2325,14 +2615,19 @@ O sinal combina **batimento monaural + modulação isocrônica**.
 
     sessao_guiada(
 
-        "Integração Noturna — 1 hora",
+        titulo=
+            "Integração Noturna — 1 hora",
 
-        INTRO_NOTURNO,
+        intro_texto=
+            INTRO_NOTURNO,
 
-        [],
+        prompts=
+            [],
 
         duracao_seg=
-            60 * 60,
+            60
+            *
+            60,
 
         modo=
             "noturno",
