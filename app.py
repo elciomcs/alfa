@@ -47,11 +47,9 @@ def gerar_vozes(
         )
 
     async def executar():
-
         saidas = []
 
         for texto in textos:
-
             dados = bytearray()
 
             tts = edge_tts.Communicate(
@@ -116,8 +114,7 @@ def tocar_sessao(
         +
         [
             texto
-            for _, texto
-            in etapa["prompts"]
+            for _, texto in etapa["prompts"]
         ]
     )
 
@@ -258,7 +255,7 @@ def tocar_sessao(
 
 
 # ============================================================
-# ANSEIO E PROPÓSITO
+# ETAPA 3 — ANSEIO E PROPÓSITO
 # ============================================================
 
 def roteiro_anseio(
@@ -304,7 +301,7 @@ def roteiro_anseio(
         "intro":
             (
                 "Encontre uma posição confortável. "
-                "Perceba a respiração e o coração. "
+                "Observe a respiração e o coração. "
                 +
                 foco
                 +
@@ -376,7 +373,7 @@ ETAPAS = {
                 "Observe o pensamento "
                 "que estava ocupando sua mente. "
                 "Não lute contra ele. "
-                "Apenas perceba. "
+                "Apenas observe. "
                 "Agora recorde algo "
                 "pelo qual você agradece a Deus. "
                 "Permita que a gratidão "
@@ -534,9 +531,7 @@ voz = (
     "pt-BR-FranciscaNeural"
 
     if
-    voz_nome
-    ==
-    "Feminina"
+    voz_nome == "Feminina"
 
     else
 
@@ -546,7 +541,7 @@ voz = (
 
 
 # ============================================================
-# ETAPA
+# ESCOLHA DA ETAPA
 # ============================================================
 
 etapa_nome = st.radio(
@@ -564,7 +559,7 @@ etapa_nome = st.radio(
 
 
 # ============================================================
-# ANSEIO DINÂMICO
+# ETAPA DINÂMICA
 # ============================================================
 
 if etapa_nome.startswith(
@@ -575,7 +570,7 @@ if etapa_nome.startswith(
 
         "Qual é o seu anseio?",
 
-        key="anseio"
+        key="anseio",
 
     )
 
@@ -593,7 +588,7 @@ else:
 
 
 # ============================================================
-# TÍTULO DA ETAPA
+# TÍTULO
 # ============================================================
 
 st.subheader(
