@@ -1,0 +1,1671 @@
+<div style="
+    font-family:Arial,sans-serif;
+    padding:14px;
+    border:1px solid #9994;
+    border-radius:14px
+">
+
+    <div style="
+        font-size:18px;
+        font-weight:700;
+        margin-bottom:12px
+    ">
+        🎧 __TITLE__
+    </div>
+
+
+    <div style="
+        display:flex;
+        gap:8px;
+        flex-wrap:wrap
+    ">
+
+        <button onclick="startSession()">
+            ▶ Iniciar
+        </button>
+
+        <button onclick="pauseSession()">
+            ⏸ Pausar
+        </button>
+
+        <button onclick="resumeSession()">
+            ⏯ Continuar
+        </button>
+
+        <button onclick="stopSession()">
+            ⏹ Parar
+        </button>
+
+    </div>
+
+
+    <div style="
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:12px;
+        margin-top:12px
+    ">
+
+        <label>
+
+            Voz
+
+            <input
+                id="voiceVol"
+                type="range"
+                min="0.25"
+                max="1"
+                value="0.88"
+                step="0.05"
+                style="width:100%"
+            >
+
+        </label>
+
+
+        <label>
+
+            Som
+
+            <input
+                id="soundVol"
+                type="range"
+                min="0.02"
+                max="0.30"
+                value="0.12"
+                step="0.01"
+                style="width:100%"
+            >
+
+        </label>
+
+    </div>
+
+
+    <div
+        id="status"
+        style="
+            font-size:13px;
+            margin-top:10px
+        "
+    >
+        Pronto.
+    </div>
+
+
+    <div style="
+        height:7px;
+        background:#9993;
+        border-radius:7px;
+        overflow:hidden;
+        margin-top:8px
+    ">
+
+        <div
+            id="bar"
+            style="
+                height:100%;
+                width:0%;
+                background:currentColor;
+                opacity:.55
+            "
+        >
+        </div>
+
+    </div>
+
+
+    <div
+        id="clock"
+        style="
+            font-size:12px;
+            opacity:.7;
+            margin-top:5px
+        "
+    >
+        00:00
+    </div>
+
+</div>
+
+
+<script>
+
+const introSrc =
+    __INTRO__;
+
+const prompts =
+    __PROMPTS__;
+
+const duration =
+    __DURATION__;
+
+const mode =
+    __MODE__;
+
+
+let ctx = null;
+
+let master = null;
+
+let nodes = [];
+
+let introAudio = null;
+
+let activeVoice = null;
+
+let startTime = null;
+
+let timer = null;
+
+let keepOsc = null;
+
+let keepGain = null;
+
+let stopped = true;
+
+
+prompts.forEach(
+    p => p.played = false
+);
+
+
+function status(text) {
+
+    document
+        .getElementById(
+            "status"
+        )
+        .innerText =
+            text;
+
+}
+
+
+function fmt(sec) {
+
+    sec =
+        Math.max(
+            0,
+            Math.floor(sec)
+        );
+
+
+    const m =
+        String(
+            Math.floor(
+                sec / 60
+            )
+        )
+        .padStart(
+            2,
+            "0"
+        );
+
+
+    const s =
+        String(
+            sec % 60
+        )
+        .padStart(
+            2,
+            "0"
+        );
+
+
+    return (
+        m
+        +
+        ":"
+        +
+        s
+    );
+
+}
+
+
+function makeContext() {
+
+    if (
+        !ctx
+        ||
+        ctx.state === "closed"
+    ) {
+
+        ctx =
+            new (
+                window.AudioContext
+                ||
+                window.webkitAudioContext
+            )();
+
+    }
+
+}
+
+
+function keepAlive() {
+
+    if (
+        !ctx
+        ||
+        keepOsc
+    ) {
+
+        return;
+
+    }
+
+
+    keepOsc =
+        ctx.createOscillator();
+
+
+    keepGain =
+        ctx.createGain();
+
+
+    keepOsc.frequency.value =
+        20;
+
+
+    keepGain.gain.value =
+        0.000001;
+
+
+    keepOsc.connect(
+        keepGain
+    );
+
+
+    keepGain.connect(
+        ctx.destination
+    );
+
+
+    keepOsc.start();
+
+}
+
+
+function stopKeepAlive() {
+
+    try {
+
+        if (keepOsc)
+            keepOsc.stop();
+
+    }
+
+    catch(e) {}
+
+
+    try {
+
+        if (keepOsc)
+            keepOsc.disconnect();
+
+    }
+
+    catch(e) {}
+
+
+    try {
+
+        if (keepGain)
+            keepGain.disconnect();
+
+    }
+
+    catch(e) {}
+
+
+    keepOsc =
+        null;
+
+
+    keepGain =
+        null;
+
+}
+
+
+function binaural(
+    base,
+    points
+) {
+
+    const merger =
+        ctx.createChannelMerger(
+            2
+        );
+
+
+    const leftGain =
+        ctx.createGain();
+
+
+    const rightGain =
+        ctx.createGain();
+
+
+    const left =
+        ctx.createOscillator();
+
+
+    const right =
+        ctx.createOscillator();
+
+
+    leftGain.gain.value =
+        0.46;
+
+
+    rightGain.gain.value =
+        0.46;
+
+
+    left.frequency.value =
+        base;
+
+
+    right.frequency
+        .setValueAtTime(
+
+            base
+            +
+            points[0][1],
+
+            ctx.currentTime
+
+        );
+
+
+    points
+        .slice(1)
+        .forEach(
+            p => {
+
+                const time =
+                    ctx.currentTime
+                    +
+                    p[0];
+
+
+                const frequency =
+                    base
+                    +
+                    p[1];
+
+
+                if (
+                    p[2]
+                    ===
+                    "ramp"
+                ) {
+
+                    right.frequency
+                        .linearRampToValueAtTime(
+
+                            frequency,
+
+                            time
+
+                        );
+
+                }
+
+                else {
+
+                    right.frequency
+                        .setValueAtTime(
+
+                            frequency,
+
+                            time
+
+                        );
+
+                }
+
+            }
+        );
+
+
+    left.connect(
+        leftGain
+    );
+
+
+    right.connect(
+        rightGain
+    );
+
+
+    leftGain.connect(
+        merger,
+        0,
+        0
+    );
+
+
+    rightGain.connect(
+        merger,
+        0,
+        1
+    );
+
+
+    merger.connect(
+        master
+    );
+
+
+    left.start();
+
+
+    right.start();
+
+
+    left.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+
+    right.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+
+    nodes.push(
+
+        left,
+
+        right,
+
+        leftGain,
+
+        rightGain,
+
+        merger
+
+    );
+
+}
+
+
+function noturno() {
+
+    const mix =
+        ctx.createGain();
+
+
+    const o1 =
+        ctx.createOscillator();
+
+
+    const o2 =
+        ctx.createOscillator();
+
+
+    const mod =
+        ctx.createGain();
+
+
+    const lfo =
+        ctx.createOscillator();
+
+
+    const depth =
+        ctx.createGain();
+
+
+    mix.gain.value =
+        0.50;
+
+
+    mod.gain.value =
+        0.59;
+
+
+    depth.gain.value =
+        0.41;
+
+
+    o1.frequency.value =
+        100;
+
+
+    // 0 até 29:30
+    // 6 Hz
+
+    o2.frequency
+        .setValueAtTime(
+            106,
+            ctx.currentTime
+        );
+
+
+    o2.frequency
+        .setValueAtTime(
+            106,
+            ctx.currentTime
+            +
+            1770
+        );
+
+
+    // 29:30 até 30:30
+    // transição para 2,5 Hz
+
+    o2.frequency
+        .linearRampToValueAtTime(
+            102.5,
+            ctx.currentTime
+            +
+            1830
+        );
+
+
+    // 30:30 até 60:00
+    // 2,5 Hz
+
+    o2.frequency
+        .setValueAtTime(
+            102.5,
+            ctx.currentTime
+            +
+            3600
+        );
+
+
+    lfo.frequency
+        .setValueAtTime(
+            6,
+            ctx.currentTime
+        );
+
+
+    lfo.frequency
+        .setValueAtTime(
+            6,
+            ctx.currentTime
+            +
+            1770
+        );
+
+
+    lfo.frequency
+        .linearRampToValueAtTime(
+            2.5,
+            ctx.currentTime
+            +
+            1830
+        );
+
+
+    lfo.frequency
+        .setValueAtTime(
+            2.5,
+            ctx.currentTime
+            +
+            3600
+        );
+
+
+    lfo.connect(
+        depth
+    );
+
+
+    depth.connect(
+        mod.gain
+    );
+
+
+    o1.connect(
+        mix
+    );
+
+
+    o2.connect(
+        mix
+    );
+
+
+    mix.connect(
+        mod
+    );
+
+
+    mod.connect(
+        master
+    );
+
+
+    o1.start();
+
+
+    o2.start();
+
+
+    lfo.start();
+
+
+    o1.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+
+    o2.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+
+    lfo.stop(
+        ctx.currentTime
+        +
+        duration
+        +
+        1
+    );
+
+
+    nodes.push(
+
+        o1,
+
+        o2,
+
+        lfo,
+
+        mix,
+
+        mod,
+
+        depth
+
+    );
+
+}
+
+
+function createSound() {
+
+    master =
+        ctx.createGain();
+
+
+    const volume =
+        parseFloat(
+            document
+                .getElementById(
+                    "soundVol"
+                )
+                .value
+        );
+
+
+    master.gain
+        .setValueAtTime(
+            0.0001,
+            ctx.currentTime
+        );
+
+
+    master.gain
+        .exponentialRampToValueAtTime(
+
+            Math.max(
+                volume,
+                0.001
+            ),
+
+            ctx.currentTime
+            +
+            0.45
+
+        );
+
+
+    master.connect(
+        ctx.destination
+    );
+
+
+    if (
+        mode
+        ===
+        "amor"
+    ) {
+
+        binaural(
+
+            150,
+
+            [
+                [
+                    0,
+                    8,
+                    "set"
+                ],
+
+                [
+                    120,
+                    10,
+                    "set"
+                ],
+
+                [
+                    600,
+                    10,
+                    "set"
+                ],
+
+                [
+                    duration,
+                    20,
+                    "ramp"
+                ]
+            ]
+
+        );
+
+    }
+
+
+    if (
+        mode
+        ===
+        "proximo"
+    ) {
+
+        binaural(
+
+            145,
+
+            [
+                [
+                    0,
+                    10,
+                    "set"
+                ],
+
+                [
+                    Math.max(
+                        duration
+                        -
+                        120,
+                        0
+                    ),
+
+                    10,
+
+                    "set"
+                ],
+
+                [
+                    duration,
+                    12,
+                    "ramp"
+                ]
+            ]
+
+        );
+
+    }
+
+
+    if (
+        mode
+        ===
+        "anseio"
+    ) {
+
+        binaural(
+
+            110,
+
+            [
+                [
+                    0,
+                    8,
+                    "set"
+                ],
+
+                [
+                    duration
+                    *
+                    0.20,
+                    10,
+                    "set"
+                ],
+
+                [
+                    duration
+                    *
+                    0.50,
+                    10,
+                    "set"
+                ],
+
+                [
+                    duration
+                    *
+                    0.80,
+                    14,
+                    "ramp"
+                ],
+
+                [
+                    duration,
+                    18,
+                    "ramp"
+                ]
+            ]
+
+        );
+
+    }
+
+
+    if (
+        mode
+        ===
+        "noturno"
+    ) {
+
+        noturno();
+
+    }
+
+}
+
+
+function playVoice(src) {
+
+    return new Promise(
+
+        resolve => {
+
+            if (!src) {
+
+                resolve();
+
+                return;
+
+            }
+
+
+            const audio =
+                new Audio(
+                    src
+                );
+
+
+            activeVoice =
+                audio;
+
+
+            audio.volume =
+                parseFloat(
+                    document
+                        .getElementById(
+                            "voiceVol"
+                        )
+                        .value
+                );
+
+
+            if (
+                master
+                &&
+                ctx
+            ) {
+
+                master.gain
+                    .cancelScheduledValues(
+                        ctx.currentTime
+                    );
+
+
+                master.gain
+                    .setValueAtTime(
+
+                        Math.max(
+                            master.gain.value,
+                            0.001
+                        ),
+
+                        ctx.currentTime
+
+                    );
+
+
+                master.gain
+                    .linearRampToValueAtTime(
+                        0.025,
+                        ctx.currentTime
+                        +
+                        0.20
+                    );
+
+            }
+
+
+            audio.onended =
+                () => {
+
+                    if (
+                        master
+                        &&
+                        ctx
+                        &&
+                        !stopped
+                    ) {
+
+                        const volume =
+                            parseFloat(
+                                document
+                                    .getElementById(
+                                        "soundVol"
+                                    )
+                                    .value
+                            );
+
+
+                        master.gain
+                            .cancelScheduledValues(
+                                ctx.currentTime
+                            );
+
+
+                        master.gain
+                            .setValueAtTime(
+
+                                Math.max(
+                                    master.gain.value,
+                                    0.001
+                                ),
+
+                                ctx.currentTime
+
+                            );
+
+
+                        master.gain
+                            .linearRampToValueAtTime(
+
+                                Math.max(
+                                    volume,
+                                    0.001
+                                ),
+
+                                ctx.currentTime
+                                +
+                                0.45
+
+                            );
+
+                    }
+
+
+                    activeVoice =
+                        null;
+
+
+                    status(
+                        "🎵 Continue..."
+                    );
+
+
+                    resolve();
+
+                };
+
+
+            audio.onerror =
+                resolve;
+
+
+            audio
+                .play()
+                .catch(
+                    resolve
+                );
+
+        }
+
+    );
+
+}
+
+
+async function beginSound() {
+
+    if (stopped)
+        return;
+
+
+    makeContext();
+
+
+    try {
+
+        await ctx.resume();
+
+    }
+
+    catch(e) {}
+
+
+    stopKeepAlive();
+
+
+    createSound();
+
+
+    startTime =
+        ctx.currentTime;
+
+
+    status(
+        "🎵 Áudio iniciado."
+    );
+
+
+    prompts.forEach(
+        p => p.played = false
+    );
+
+
+    timer =
+        setInterval(
+
+            () => {
+
+                if (
+                    !ctx
+                    ||
+                    startTime
+                    ===
+                    null
+                    ||
+                    stopped
+                ) {
+
+                    return;
+
+                }
+
+
+                const elapsed =
+                    Math.min(
+
+                        duration,
+
+                        ctx.currentTime
+                        -
+                        startTime
+
+                    );
+
+
+                document
+                    .getElementById(
+                        "clock"
+                    )
+                    .innerText =
+
+                        fmt(elapsed)
+                        +
+                        " / "
+                        +
+                        fmt(duration);
+
+
+                document
+                    .getElementById(
+                        "bar"
+                    )
+                    .style
+                    .width =
+
+                        (
+                            (
+                                elapsed
+                                /
+                                duration
+                            )
+                            *
+                            100
+                        )
+                        .toFixed(2)
+                        +
+                        "%";
+
+
+                prompts.forEach(
+
+                    p => {
+
+                        if (
+                            !p.played
+                            &&
+                            elapsed
+                            >=
+                            p.at
+                        ) {
+
+                            p.played =
+                                true;
+
+
+                            playVoice(
+                                p.src
+                            );
+
+                        }
+
+                    }
+
+                );
+
+
+                if (
+                    elapsed
+                    >=
+                    duration
+                ) {
+
+                    finishSession();
+
+                }
+
+            },
+
+            500
+
+        );
+
+}
+
+
+async function startSession() {
+
+    stopSession(
+        false
+    );
+
+
+    stopped =
+        false;
+
+
+    makeContext();
+
+
+    try {
+
+        await ctx.resume();
+
+    }
+
+    catch(e) {}
+
+
+    keepAlive();
+
+
+    status(
+        "🎙️ Narração..."
+    );
+
+
+    introAudio =
+        new Audio(
+            introSrc
+        );
+
+
+    introAudio.volume =
+        parseFloat(
+            document
+                .getElementById(
+                    "voiceVol"
+                )
+                .value
+        );
+
+
+    introAudio.onended =
+        () => {
+
+            if (stopped)
+                return;
+
+
+            setTimeout(
+
+                () =>
+                    beginSound(),
+
+                200
+
+            );
+
+        };
+
+
+    introAudio.onerror =
+        () => {
+
+            setTimeout(
+
+                () =>
+                    beginSound(),
+
+                200
+
+            );
+
+        };
+
+
+    introAudio
+        .play()
+        .catch(
+            () => {
+
+                status(
+                    "Toque novamente em Iniciar."
+                );
+
+            }
+        );
+
+}
+
+
+function pauseSession() {
+
+    if (stopped)
+        return;
+
+
+    try {
+
+        if (
+            introAudio
+            &&
+            !introAudio.paused
+        ) {
+
+            introAudio.pause();
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    try {
+
+        if (
+            activeVoice
+            &&
+            !activeVoice.paused
+        ) {
+
+            activeVoice.pause();
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    try {
+
+        if (
+            ctx
+            &&
+            ctx.state
+            ===
+            "running"
+        ) {
+
+            ctx.suspend();
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    status(
+        "⏸ Pausado."
+    );
+
+}
+
+
+function resumeSession() {
+
+    if (stopped)
+        return;
+
+
+    try {
+
+        if (
+            ctx
+            &&
+            ctx.state
+            ===
+            "suspended"
+        ) {
+
+            ctx.resume();
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    try {
+
+        if (
+            activeVoice
+            &&
+            activeVoice.paused
+        ) {
+
+            activeVoice.play();
+
+        }
+
+
+        else if (
+            introAudio
+            &&
+            introAudio.paused
+            &&
+            startTime
+            ===
+            null
+        ) {
+
+            introAudio.play();
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    status(
+        "▶ Continuando."
+    );
+
+}
+
+
+function stopSession(
+    showStatus=true
+) {
+
+    stopped =
+        true;
+
+
+    if (timer) {
+
+        clearInterval(
+            timer
+        );
+
+
+        timer =
+            null;
+
+    }
+
+
+    try {
+
+        if (introAudio) {
+
+            introAudio.pause();
+
+            introAudio.currentTime =
+                0;
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    try {
+
+        if (activeVoice) {
+
+            activeVoice.pause();
+
+            activeVoice.currentTime =
+                0;
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    nodes.forEach(
+
+        node => {
+
+            try {
+
+                if (node.stop)
+                    node.stop();
+
+            }
+
+            catch(e) {}
+
+
+            try {
+
+                if (node.disconnect)
+                    node.disconnect();
+
+            }
+
+            catch(e) {}
+
+        }
+
+    );
+
+
+    nodes =
+        [];
+
+
+    stopKeepAlive();
+
+
+    try {
+
+        if (
+            ctx
+            &&
+            ctx.state
+            !==
+            "closed"
+        ) {
+
+            ctx.close();
+
+        }
+
+    }
+
+    catch(e) {}
+
+
+    ctx =
+        null;
+
+
+    master =
+        null;
+
+
+    startTime =
+        null;
+
+
+    introAudio =
+        null;
+
+
+    activeVoice =
+        null;
+
+
+    if (showStatus) {
+
+        status(
+            "⏹ Encerrado."
+        );
+
+
+        document
+            .getElementById(
+                "bar"
+            )
+            .style
+            .width =
+                "0%";
+
+
+        document
+            .getElementById(
+                "clock"
+            )
+            .innerText =
+                "00:00";
+
+    }
+
+}
+
+
+function finishSession() {
+
+    if (timer) {
+
+        clearInterval(
+            timer
+        );
+
+
+        timer =
+            null;
+
+    }
+
+
+    status(
+        "✅ Concluído."
+    );
+
+
+    document
+        .getElementById(
+            "bar"
+        )
+        .style
+        .width =
+            "100%";
+
+
+    setTimeout(
+
+        () =>
+            stopSession(
+                false
+            ),
+
+        1000
+
+    );
+
+}
+
+
+document
+    .getElementById(
+        "soundVol"
+    )
+    .addEventListener(
+
+        "input",
+
+        event => {
+
+            if (
+                master
+                &&
+                ctx
+                &&
+                !stopped
+            ) {
+
+                master.gain
+                    .setTargetAtTime(
+
+                        parseFloat(
+                            event.target.value
+                        ),
+
+                        ctx.currentTime,
+
+                        0.15
+
+                    );
+
+            }
+
+        }
+
+    );
+
+</script>
