@@ -39,16 +39,13 @@ Na última etapa, a voz faz a preparação inicial e depois o áudio monaural + 
 
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
 def gerar_clipes_neurais(textos, voz, rate="-14%", pitch="-2Hz"):
-
     if edge_tts is None:
         return tuple(b"" for _ in textos)
 
     async def _run():
-
         saidas = []
 
         for texto in textos:
-
             dados = bytearray()
 
             communicate = edge_tts.Communicate(
@@ -186,10 +183,8 @@ def sessao_guiada(
             }
         )
 
-    # IMPORTANTE:
-    # Este HTML NÃO é uma f-string.
-    # Assim, as chaves { } do JavaScript
-    # não causam erro no Python.
+    # Não é f-string.
+    # Assim, as chaves do JavaScript são seguras.
 
     html_code = r'''
 <div style="
@@ -305,10 +300,10 @@ def sessao_guiada(
             <input
                 id="soundVol"
                 type="range"
-                min="0.01"
-                max="0.18"
-                value="0.065"
-                step="0.005"
+                min="0.02"
+                max="0.30"
+                value="0.12"
+                step="0.01"
                 style="width:100%"
             >
 
@@ -750,13 +745,11 @@ function createMonauralIso() {
         100;
 
 
-    // 0:00 até 29:30
-    // diferença monaural de 6 Hz
-
     o2.frequency.setValueAtTime(
         106,
         ctx.currentTime
     );
+
 
     o2.frequency.setValueAtTime(
         106,
@@ -766,9 +759,6 @@ function createMonauralIso() {
     );
 
 
-    // 29:30 até 30:30
-    // transição 6 Hz → 2,5 Hz
-
     o2.frequency
         .linearRampToValueAtTime(
             102.5,
@@ -777,8 +767,6 @@ function createMonauralIso() {
             1830
         );
 
-
-    // 30:30 até 60:00
 
     o2.frequency.setValueAtTime(
         102.5,
@@ -800,6 +788,7 @@ function createMonauralIso() {
         6,
         ctx.currentTime
     );
+
 
     lfo.frequency.setValueAtTime(
         6,
@@ -834,6 +823,7 @@ function createMonauralIso() {
         lfoDepth
     );
 
+
     lfoDepth.connect(
         mod.gain
     );
@@ -843,6 +833,7 @@ function createMonauralIso() {
         mix
     );
 
+
     o2.connect(
         mix
     );
@@ -851,6 +842,7 @@ function createMonauralIso() {
     mix.connect(
         mod
     );
+
 
     mod.connect(
         master
@@ -872,6 +864,7 @@ function createMonauralIso() {
         1
     );
 
+
     o2.stop(
         ctx.currentTime
         +
@@ -879,6 +872,7 @@ function createMonauralIso() {
         +
         1
     );
+
 
     lfo.stop(
         ctx.currentTime
@@ -917,10 +911,6 @@ function createSound() {
         );
 
 
-    // O áudio entra rápido:
-    // 0,2 s após a voz,
-    // chegando ao volume em 0,7 s.
-
     master.gain.setValueAtTime(
         0.0001,
         ctx.currentTime
@@ -935,7 +925,7 @@ function createSound() {
             ),
             ctx.currentTime
             +
-            0.7
+            0.45
         );
 
 
@@ -1131,9 +1121,6 @@ function playVoice(
                 );
 
 
-            // Abaixa o som enquanto
-            // a voz orienta.
-
             if (
                 master
                 &&
@@ -1221,7 +1208,7 @@ function playVoice(
                                 ),
                                 ctx.currentTime
                                 +
-                                0.7
+                                0.45
                             );
 
                     }
@@ -1461,9 +1448,6 @@ async function startSession() {
     catch (e) {}
 
 
-    // Mantém o AudioContext ativo
-    // durante a narração.
-
     startKeepAlive();
 
 
@@ -1516,10 +1500,6 @@ async function startSession() {
                 "🎵 Entrando no áudio..."
             );
 
-
-            // Apenas 0,2 segundo
-            // entre a narração
-            // e o início do som.
 
             setTimeout(
                 function () {
@@ -1792,7 +1772,8 @@ function stopSession(
     );
 
 
-    nodes = [];
+    nodes =
+        [];
 
 
     stopKeepAlive();
@@ -2034,7 +2015,7 @@ document
 
 INTRO_AMOR = (
     "Encontre uma posição confortável. "
-    "Se puder, coloque uma das mãos sobre o coração. "
+    "Coloque uma das mãos sobre o coração. "
     "Feche os olhos, se isso for confortável. "
     "Inspire suavemente e expire devagar. "
     "Não tente fabricar nenhuma emoção. "
@@ -2319,7 +2300,7 @@ with st.sidebar:
 
 
 # ============================================================
-# ETAPAS
+# ESCOLHA DA ETAPA
 # ============================================================
 
 etapa = st.radio(
@@ -2342,7 +2323,7 @@ st.divider()
 
 
 # ============================================================
-# ETAPA 1
+# ETAPA 1 — AMOR A DEUS
 # ============================================================
 
 if etapa.startswith(
@@ -2359,10 +2340,6 @@ if etapa.startswith(
 ### Amor a DEUS
 
 **presença → gratidão → sentir o Amor a DEUS → pensamento → ação**
-
-A sessão possui **12 minutos de áudio**, além da narração inicial.
-
-Use fones de ouvido para a experiência binaural.
 """
     )
 
@@ -2410,7 +2387,7 @@ Use fones de ouvido para a experiência binaural.
 
 
 # ============================================================
-# ETAPA 2
+# ETAPA 2 — AMOR AO PRÓXIMO
 # ============================================================
 
 elif etapa.startswith(
@@ -2490,7 +2467,7 @@ A empatia é a ponte.
 
 
 # ============================================================
-# ETAPA 3
+# ETAPA 3 — ANSEIO E PROPÓSITO
 # ============================================================
 
 elif etapa.startswith(
@@ -2582,7 +2559,7 @@ elif etapa.startswith(
 
 
 # ============================================================
-# ETAPA 4
+# ETAPA 4 — INTEGRAÇÃO NOTURNA
 # ============================================================
 
 else:
