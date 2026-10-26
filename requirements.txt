@@ -1,4 +1,5 @@
-streamlit==1.65.0
 numpy==2.4.6
 requests==2.34.2
 scipy
+streamlit>=1.39
+edge-tts>=6.1.12
