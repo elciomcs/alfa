@@ -1,9 +1,15 @@
 import streamlit as st
+import streamlit.components.v1 as components
+
 import asyncio
 import edge_tts
+
 import base64
 import tempfile
 import os
+import json
+import html
+
 
 # ============================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -16,200 +22,347 @@ st.set_page_config(
 )
 
 st.title("❤️ Manual Prático do Amor")
-st.caption("Sentir → compreender → escolher → agir")
+
+st.caption(
+    "Sentir → observar → compreender → escolher → agir"
+)
 
 st.markdown(
     """
-Este aplicativo conduz uma jornada em quatro etapas:
+Uma jornada prática em quatro etapas:
 
-1. **Amor em DEUS**
-2. **Amor ao Próximo e Empatia**
-3. **Anseio e Propósito**
-4. **Integração Noturna — 1 hora**
+**1. Amor em DEUS**  
+**2. Amor ao Próximo e Empatia**  
+**3. Anseio e Propósito**  
+**4. Integração Noturna — 1 hora**
 
-A experiência foi estruturada para que a pessoa não precise operar vários controles durante a prática.
+O princípio central é:
 
-O fluxo é:
-
-**voz → pausa → áudio → orientações pontuais → conclusão automática**
+### SENTIR → OBSERVAR O PENSAMENTO → ESCOLHER → AGIR
 """
 )
+
 
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
 
-st.sidebar.header("⚙️ Configurações")
+with st.sidebar:
 
-voz_escolhida = st.sidebar.selectbox(
-    "Escolha a voz",
-    [
-        "pt-BR-FranciscaNeural",
-        "pt-BR-AntonioNeural"
-    ],
-    format_func=lambda x:
-        "Feminina suave" if "Francisca" in x else "Masculina suave"
-)
+    st.header("⚙️ Configurações")
 
-velocidade = st.sidebar.slider(
-    "Velocidade da voz",
-    min_value=-30,
-    max_value=15,
-    value=-12,
-    step=1
-)
-
-st.sidebar.caption(
-    "A narração neural precisa de internet no servidor Streamlit "
-    "para ser gerada."
-)
-
-# ============================================================
-# FUNÇÃO TTS
-# ============================================================
-
-async def gerar_voz_async(texto, voz, velocidade):
-    communicate = edge_tts.Communicate(
-        texto,
-        voz,
-        rate=f"{velocidade}%"
+    voz_escolhida = st.selectbox(
+        "Escolha a voz",
+        [
+            "pt-BR-FranciscaNeural",
+            "pt-BR-AntonioNeural"
+        ],
+        format_func=lambda voz:
+            "Feminina suave"
+            if "Francisca" in voz
+            else "Masculina suave"
     )
 
-    temp = tempfile.NamedTemporaryFile(
+    velocidade = st.slider(
+        "Velocidade da voz",
+        min_value=-30,
+        max_value=10,
+        value=-15,
+        step=1
+    )
+
+    pausa_inicial = st.slider(
+        "Pausa entre a narração e o áudio",
+        min_value=1,
+        max_value=10,
+        value=4,
+        step=1
+    )
+
+
+# ============================================================
+# EDGE TTS
+# ============================================================
+
+async def gerar_voz_async(
+    texto,
+    voz,
+    velocidade
+):
+
+    rate = f"{velocidade:+d}%"
+
+    communicate = edge_tts.Communicate(
+        text=texto,
+        voice=voz,
+        rate=rate
+    )
+
+    arquivo = tempfile.NamedTemporaryFile(
         delete=False,
         suffix=".mp3"
     )
 
-    temp.close()
+    arquivo.close()
 
-    await communicate.save(temp.name)
+    try:
 
-    with open(temp.name, "rb") as f:
-        audio_bytes = f.read()
-
-    os.unlink(temp.name)
-
-    return audio_bytes
-
-
-def gerar_voz(texto, voz, velocidade):
-    return asyncio.run(
-        gerar_voz_async(
-            texto,
-            voz,
-            velocidade
+        await communicate.save(
+            arquivo.name
         )
-    )
+
+        with open(
+            arquivo.name,
+            "rb"
+        ) as f:
+
+            dados = f.read()
+
+        return dados
+
+    finally:
+
+        if os.path.exists(
+            arquivo.name
+        ):
+            os.unlink(
+                arquivo.name
+            )
+
+
+@st.cache_data(show_spinner=False)
+def gerar_voz(
+    texto,
+    voz,
+    velocidade
+):
+
+    loop = asyncio.new_event_loop()
+
+    try:
+
+        asyncio.set_event_loop(
+            loop
+        )
+
+        return loop.run_until_complete(
+            gerar_voz_async(
+                texto,
+                voz,
+                velocidade
+            )
+        )
+
+    finally:
+
+        loop.close()
 
 
 # ============================================================
-# CONVERSÃO BASE64
+# BASE64
 # ============================================================
 
-def bytes_para_base64(data):
-    return base64.b64encode(data).decode()
+def para_base64(
+    dados
+):
+
+    return base64.b64encode(
+        dados
+    ).decode("utf-8")
 
 
 # ============================================================
-# PLAYER AUTOMÁTICO COM WEB AUDIO
+# PLAYER AUTOMÁTICO
 # ============================================================
 
 def player_sessao(
+    titulo,
     voz_inicial,
     duracao_audio,
     frequencia_inicio,
-    frequencia_fim=None,
+    frequencia_fim,
     falas_intermediarias=None,
-    volume=0.12,
-    titulo="Sessão"
+    volume=0.08,
+    modo="binaural",
+    pausa=4
 ):
 
-    voz_b64 = bytes_para_base64(voz_inicial)
+    if falas_intermediarias is None:
+        falas_intermediarias = []
 
-    falas_js = []
+    inicial_b64 = para_base64(
+        voz_inicial
+    )
 
-    if falas_intermediarias:
+    falas = []
 
-        for tempo, audio_bytes in falas_intermediarias:
+    for tempo, audio in falas_intermediarias:
 
-            falas_js.append(
-                {
-                    "tempo": tempo,
-                    "audio": bytes_para_base64(audio_bytes)
-                }
-            )
+        falas.append(
+            {
+                "tempo": tempo,
+                "audio": para_base64(
+                    audio
+                )
+            }
+        )
 
-    html = f"""
+    falas_json = json.dumps(
+        falas,
+        ensure_ascii=False
+    )
+
+    titulo_html = html.escape(
+        titulo
+    )
+
+    titulo_json = json.dumps(
+        titulo,
+        ensure_ascii=False
+    )
+
+    html_player = f"""
     <div style="
+        border:1px solid rgba(120,120,120,.30);
+        border-radius:16px;
         padding:18px;
-        border:1px solid #ddd;
-        border-radius:14px;
-        margin-top:15px;
+        margin-top:10px;
+        background:rgba(120,120,120,.04);
+        font-family:Arial,sans-serif;
     ">
 
-        <h4>{titulo}</h4>
+        <div style="
+            font-size:18px;
+            font-weight:700;
+            margin-bottom:14px;
+        ">
+            {titulo_html}
+        </div>
 
-        <button
-            onclick="iniciarSessao()"
-            style="
-                padding:12px 20px;
-                font-size:16px;
-                border-radius:10px;
-                border:none;
-                cursor:pointer;
-            "
-        >
-            ▶️ Iniciar sessão
-        </button>
+        <div style="
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        ">
 
-        <button
-            onclick="pararSessao()"
-            style="
-                padding:12px 20px;
-                font-size:16px;
-                border-radius:10px;
-                border:none;
-                cursor:pointer;
-                margin-left:8px;
-            "
-        >
-            ⏹️ Parar
-        </button>
+            <button
+                onclick="iniciarSessao()"
+                style="
+                    border:none;
+                    border-radius:10px;
+                    padding:11px 18px;
+                    cursor:pointer;
+                    font-size:15px;
+                "
+            >
+                ▶️ Iniciar sessão
+            </button>
+
+            <button
+                onclick="pausarSessao()"
+                style="
+                    border:none;
+                    border-radius:10px;
+                    padding:11px 18px;
+                    cursor:pointer;
+                "
+            >
+                ⏸️ Pausar
+            </button>
+
+            <button
+                onclick="continuarSessao()"
+                style="
+                    border:none;
+                    border-radius:10px;
+                    padding:11px 18px;
+                    cursor:pointer;
+                "
+            >
+                ⏯️ Continuar
+            </button>
+
+            <button
+                onclick="pararSessao()"
+                style="
+                    border:none;
+                    border-radius:10px;
+                    padding:11px 18px;
+                    cursor:pointer;
+                "
+            >
+                ⏹️ Parar
+            </button>
+
+        </div>
 
         <div
             id="status"
             style="
-                margin-top:12px;
+                margin-top:13px;
                 font-size:14px;
-                opacity:.8;
+                opacity:.80;
             "
         >
-            Pronto para iniciar.
+            Toque em “Iniciar sessão”.
         </div>
 
     </div>
 
+
     <script>
 
+    const titulo =
+        {titulo_json};
+
+    const vozInicial =
+        "data:audio/mp3;base64,{inicial_b64}";
+
+    const falas =
+        {falas_json};
+
+    const duracao =
+        {float(duracao_audio)};
+
+    const freqInicio =
+        {float(frequencia_inicio)};
+
+    const freqFim =
+        {float(frequencia_fim)};
+
+    const volumeBase =
+        {float(volume)};
+
+    const modo =
+        "{modo}";
+
+    const pausaInicial =
+        {int(pausa * 1000)};
+
+
     let ctx = null;
-    let oscillator1 = null;
-    let oscillator2 = null;
-    let gainNode = null;
+
+    let osciladores = [];
+
     let timers = [];
-    let stopped = false;
 
-    const voiceData =
-        "data:audio/mp3;base64,{voz_b64}";
+    let duckGain = null;
 
-    const falas = {falas_js};
+    let parado = false;
 
-    function status(msg) {{
-        document.getElementById("status").innerText = msg;
+    let audioVozAtual = null;
+
+
+    function status(texto) {{
+
+        document.getElementById(
+            "status"
+        ).innerText = texto;
+
     }}
 
-    function pararSessao() {{
 
-        stopped = true;
+    function limparTimers() {{
 
         timers.forEach(
             timer => clearTimeout(timer)
@@ -217,181 +370,709 @@ def player_sessao(
 
         timers = [];
 
-        if (oscillator1) {{
+    }}
+
+
+    function limparAudio() {{
+
+        limparTimers();
+
+        if (audioVozAtual) {{
+
             try {{
-                oscillator1.stop();
-            }} catch(e) {{}}
+                audioVozAtual.pause();
+                audioVozAtual.currentTime = 0;
+            }}
+            catch(e) {{}}
+
+            audioVozAtual = null;
+
         }}
 
-        if (oscillator2) {{
-            try {{
-                oscillator2.stop();
-            }} catch(e) {{}}
-        }}
+        osciladores.forEach(
+            o => {{
+
+                try {{
+                    o.stop();
+                }}
+                catch(e) {{}}
+
+            }}
+        );
+
+        osciladores = [];
 
         if (ctx) {{
+
             try {{
                 ctx.close();
-            }} catch(e) {{}}
+            }}
+            catch(e) {{}}
+
+            ctx = null;
+
         }}
 
-        oscillator1 = null;
-        oscillator2 = null;
-        gainNode = null;
-        ctx = null;
-
-        status("Sessão encerrada.");
+        duckGain = null;
 
     }}
 
-    async function tocarVoz(data) {{
+
+    function tocarVoz(
+        origem
+    ) {{
 
         return new Promise(
-            (resolve) => {{
+            resolve => {{
 
-                const audio = new Audio(data);
+                audioVozAtual =
+                    new Audio(origem);
 
-                audio.onended = resolve;
-                audio.onerror = resolve;
+                audioVozAtual.onended =
+                    () => {{
 
-                audio.play();
+                        audioVozAtual = null;
+
+                        resolve();
+
+                    }};
+
+                audioVozAtual.onerror =
+                    () => {{
+
+                        audioVozAtual = null;
+
+                        resolve();
+
+                    }};
+
+                audioVozAtual.play()
+                    .catch(
+                        () => resolve()
+                    );
 
             }}
         );
 
     }}
 
-    function iniciarSomFundo() {{
+
+    function criarContexto() {{
 
         ctx = new (
             window.AudioContext ||
             window.webkitAudioContext
         )();
 
-        oscillator1 = ctx.createOscillator();
-        oscillator2 = ctx.createOscillator();
+        duckGain =
+            ctx.createGain();
 
-        gainNode = ctx.createGain();
+        duckGain.gain.value =
+            1.0;
 
-        oscillator1.type = "sine";
-        oscillator2.type = "sine";
-
-        oscillator1.frequency.value = 120;
-
-        oscillator2.frequency.value =
-            120 + {frequencia_inicio};
-
-        gainNode.gain.value = {volume};
-
-        oscillator1.connect(gainNode);
-        oscillator2.connect(gainNode);
-
-        gainNode.connect(ctx.destination);
-
-        oscillator1.start();
-        oscillator2.start();
-
-        {"oscillator2.frequency.linearRampToValueAtTime(120 + " + str(frequencia_fim) + ", ctx.currentTime + " + str(duracao_audio) + ");" if frequencia_fim else ""}
-
-        oscillator1.stop(
-            ctx.currentTime + {duracao_audio}
-        );
-
-        oscillator2.stop(
-            ctx.currentTime + {duracao_audio}
+        duckGain.connect(
+            ctx.destination
         );
 
     }}
 
-    async function iniciarSessao() {{
 
-        pararSessao();
+    function iniciarBinaural() {{
 
-        stopped = false;
+        const agora =
+            ctx.currentTime;
 
-        status("🎙️ Iniciando narração...");
+        const oscEsq =
+            ctx.createOscillator();
 
-        await tocarVoz(voiceData);
+        const oscDir =
+            ctx.createOscillator();
 
-        if (stopped) return;
+        const ganhoEsq =
+            ctx.createGain();
 
-        status("Respire...");
+        const ganhoDir =
+            ctx.createGain();
 
-        await new Promise(
-            r => setTimeout(r, 3000)
+        const merger =
+            ctx.createChannelMerger(2);
+
+        const master =
+            ctx.createGain();
+
+
+        oscEsq.type = "sine";
+
+        oscDir.type = "sine";
+
+
+        const base = 150;
+
+
+        oscEsq.frequency.setValueAtTime(
+            base,
+            agora
         );
 
-        if (stopped) return;
+        oscDir.frequency.setValueAtTime(
+            base + freqInicio,
+            agora
+        );
 
-        status("🎧 Iniciando áudio...");
 
-        iniciarSomFundo();
+        oscDir.frequency.linearRampToValueAtTime(
+            base + freqFim,
+            agora + duracao
+        );
 
-        falas.forEach(
-            item => {{
 
-                const timer = setTimeout(
-                    async () => {{
+        ganhoEsq.gain.value =
+            0.50;
 
-                        if (stopped) return;
+        ganhoDir.gain.value =
+            0.50;
 
-                        if (gainNode) {{
-                            gainNode.gain.linearRampToValueAtTime(
-                                0.035,
-                                ctx.currentTime + 1
-                            );
-                        }}
 
-                        await tocarVoz(
-                            "data:audio/mp3;base64," + item.audio
-                        );
+        master.gain.setValueAtTime(
+            0.0001,
+            agora
+        );
 
-                        if (stopped) return;
+        master.gain.linearRampToValueAtTime(
+            volumeBase,
+            agora + 3
+        );
 
-                        if (gainNode) {{
-                            gainNode.gain.linearRampToValueAtTime(
-                                {volume},
-                                ctx.currentTime + 1.5
-                            );
-                        }}
+        master.gain.setValueAtTime(
+            volumeBase,
+            agora + Math.max(
+                3,
+                duracao - 5
+            )
+        );
 
-                    }},
-                    item.tempo * 1000
+        master.gain.linearRampToValueAtTime(
+            0.0001,
+            agora + duracao
+        );
+
+
+        oscEsq.connect(
+            ganhoEsq
+        );
+
+        oscDir.connect(
+            ganhoDir
+        );
+
+
+        ganhoEsq.connect(
+            merger,
+            0,
+            0
+        );
+
+        ganhoDir.connect(
+            merger,
+            0,
+            1
+        );
+
+
+        merger.connect(
+            master
+        );
+
+        master.connect(
+            duckGain
+        );
+
+
+        oscEsq.start();
+
+        oscDir.start();
+
+
+        oscEsq.stop(
+            agora + duracao
+        );
+
+        oscDir.stop(
+            agora + duracao
+        );
+
+
+        osciladores.push(
+            oscEsq,
+            oscDir
+        );
+
+    }}
+
+
+    function iniciarHibridoNoturno() {{
+
+        const agora =
+            ctx.currentTime;
+
+        const base =
+            100;
+
+        const transicaoInicio =
+            29.5 * 60;
+
+        const transicaoFim =
+            30.5 * 60;
+
+
+        // -------------------------
+        // MONAURAL
+        // -------------------------
+
+        const osc1 =
+            ctx.createOscillator();
+
+        const osc2 =
+            ctx.createOscillator();
+
+        const mistura =
+            ctx.createGain();
+
+
+        osc1.type =
+            "sine";
+
+        osc2.type =
+            "sine";
+
+
+        osc1.frequency.setValueAtTime(
+            base,
+            agora
+        );
+
+
+        osc2.frequency.setValueAtTime(
+            base + 6,
+            agora
+        );
+
+        osc2.frequency.setValueAtTime(
+            base + 6,
+            agora + transicaoInicio
+        );
+
+        osc2.frequency.linearRampToValueAtTime(
+            base + 2.5,
+            agora + transicaoFim
+        );
+
+        osc2.frequency.setValueAtTime(
+            base + 2.5,
+            agora + duracao
+        );
+
+
+        mistura.gain.value =
+            0.5;
+
+
+        osc1.connect(
+            mistura
+        );
+
+        osc2.connect(
+            mistura
+        );
+
+
+        // -------------------------
+        // ISOCRÔNICO
+        // -------------------------
+
+        const isoGain =
+            ctx.createGain();
+
+        isoGain.gain.value =
+            0.59;
+
+
+        const lfo =
+            ctx.createOscillator();
+
+        const lfoAmplitude =
+            ctx.createGain();
+
+
+        lfo.type =
+            "sine";
+
+
+        lfo.frequency.setValueAtTime(
+            6,
+            agora
+        );
+
+        lfo.frequency.setValueAtTime(
+            6,
+            agora + transicaoInicio
+        );
+
+        lfo.frequency.linearRampToValueAtTime(
+            2.5,
+            agora + transicaoFim
+        );
+
+        lfo.frequency.setValueAtTime(
+            2.5,
+            agora + duracao
+        );
+
+
+        lfoAmplitude.gain.value =
+            0.41;
+
+
+        lfo.connect(
+            lfoAmplitude
+        );
+
+        lfoAmplitude.connect(
+            isoGain.gain
+        );
+
+
+        mistura.connect(
+            isoGain
+        );
+
+
+        // -------------------------
+        // VOLUME
+        // -------------------------
+
+        const master =
+            ctx.createGain();
+
+
+        master.gain.setValueAtTime(
+            0.0001,
+            agora
+        );
+
+        master.gain.linearRampToValueAtTime(
+            volumeBase,
+            agora + 8
+        );
+
+        master.gain.setValueAtTime(
+            volumeBase,
+            agora + duracao - 15
+        );
+
+        master.gain.linearRampToValueAtTime(
+            0.0001,
+            agora + duracao
+        );
+
+
+        isoGain.connect(
+            master
+        );
+
+        master.connect(
+            duckGain
+        );
+
+
+        osc1.start();
+
+        osc2.start();
+
+        lfo.start();
+
+
+        osc1.stop(
+            agora + duracao
+        );
+
+        osc2.stop(
+            agora + duracao
+        );
+
+        lfo.stop(
+            agora + duracao
+        );
+
+
+        osciladores.push(
+            osc1,
+            osc2,
+            lfo
+        );
+
+    }}
+
+
+    function iniciarSom() {{
+
+        if (modo === "noturno") {{
+
+            iniciarHibridoNoturno();
+
+        }}
+        else {{
+
+            iniciarBinaural();
+
+        }}
+
+    }}
+
+
+    async function falarDuranteSom(
+        audioBase64
+    ) {{
+
+        if (
+            parado ||
+            !ctx
+        ) return;
+
+
+        status(
+            "🎙️ Orientação..."
+        );
+
+
+        duckGain.gain.cancelScheduledValues(
+            ctx.currentTime
+        );
+
+        duckGain.gain.setTargetAtTime(
+            0.20,
+            ctx.currentTime,
+            0.25
+        );
+
+
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    900
+                )
+        );
+
+
+        if (parado) return;
+
+
+        await tocarVoz(
+            "data:audio/mp3;base64,"
+            + audioBase64
+        );
+
+
+        if (parado) return;
+
+
+        duckGain.gain.cancelScheduledValues(
+            ctx.currentTime
+        );
+
+        duckGain.gain.setTargetAtTime(
+            1.0,
+            ctx.currentTime,
+            0.45
+        );
+
+
+        status(
+            "🎧 Continue a prática..."
+        );
+
+    }}
+
+
+    async function iniciarSessao() {{
+
+        limparAudio();
+
+        parado =
+            false;
+
+
+        criarContexto();
+
+
+        try {{
+
+            await ctx.resume();
+
+        }}
+        catch(e) {{}}
+
+
+        status(
+            "🎙️ Narração inicial..."
+        );
+
+
+        await tocarVoz(
+            vozInicial
+        );
+
+
+        if (parado) return;
+
+
+        status(
+            "Respire..."
+        );
+
+
+        await new Promise(
+            resolve => {{
+
+                const timer =
+                    setTimeout(
+                        resolve,
+                        pausaInicial
+                    );
+
+                timers.push(
+                    timer
                 );
-
-                timers.push(timer);
 
             }}
         );
 
-        const fim = setTimeout(
-            () => {{
 
-                if (!stopped) {{
+        if (parado) return;
 
-                    status("✅ Sessão concluída.");
 
-                }}
-
-            }},
-            {duracao_audio * 1000}
+        status(
+            "🎧 Iniciando áudio..."
         );
 
-        timers.push(fim);
+
+        iniciarSom();
+
+
+        falas.forEach(
+            item => {{
+
+                const timer =
+                    setTimeout(
+                        () => {{
+
+                            falarDuranteSom(
+                                item.audio
+                            );
+
+                        }},
+                        item.tempo * 1000
+                    );
+
+                timers.push(
+                    timer
+                );
+
+            }}
+        );
+
+
+        const fim =
+            setTimeout(
+                () => {{
+
+                    if (!parado) {{
+
+                        status(
+                            "✅ Sessão concluída."
+                        );
+
+                    }}
+
+                }},
+                duracao * 1000
+            );
+
+
+        timers.push(
+            fim
+        );
+
+    }}
+
+
+    function pausarSessao() {{
+
+        if (ctx) {{
+
+            ctx.suspend();
+
+        }}
+
+        if (audioVozAtual) {{
+
+            audioVozAtual.pause();
+
+        }}
+
+        status(
+            "⏸️ Sessão pausada."
+        );
+
+    }}
+
+
+    function continuarSessao() {{
+
+        if (ctx) {{
+
+            ctx.resume();
+
+        }}
+
+        if (audioVozAtual) {{
+
+            audioVozAtual.play();
+
+        }}
+
+        status(
+            "▶️ Sessão retomada."
+        );
+
+    }}
+
+
+    function pararSessao() {{
+
+        parado =
+            true;
+
+        limparAudio();
+
+        status(
+            "⏹️ Sessão encerrada."
+        );
 
     }}
 
     </script>
     """
 
-    st.components.v1.html(
-        html,
+    components.html(
+        html_player,
         height=190
     )
 
 
 # ============================================================
-# ROTEIROS
+# ROTEIROS — ETAPA 1
 # ============================================================
 
 ROTEIRO_DEUS = """
@@ -401,57 +1082,72 @@ Se puder, coloque uma das mãos sobre o coração.
 
 Respire lentamente.
 
-Não tente fabricar nenhuma emoção.
+Antes de mudar qualquer coisa,
+apenas observe.
 
-Apenas permita-se estar presente.
+Qual pensamento estava ocupando sua mente
+antes de começar esta experiência?
 
-Agora recorde algo concreto que DEUS fez por você.
+Não lute contra ele.
 
-Pode ser uma pessoa.
+Apenas perceba.
+
+Agora volte sua atenção para a respiração.
+
+Recorde algo concreto
+que DEUS fez por você.
+
+Algo pelo qual você
+é verdadeiramente grato.
+
+Pode ser a vida.
+
+Uma pessoa.
 
 Uma oportunidade.
 
 Uma proteção.
 
-Um recomeço.
-
 Um aprendizado.
 
-A própria vida.
+Um recomeço.
 
-Não permaneça apenas no pensamento.
+Não permaneça somente na ideia.
 
 Procure sentir a gratidão.
 
-Perceba seu peito.
+Observe o peito.
 
-Sua respiração.
+A respiração.
 
-Seu corpo.
+O rosto.
 
-Permita que a gratidão ocupe espaço dentro de você.
+O corpo.
 
-Em silêncio, diga:
+Permita que a gratidão
+se torne uma experiência.
 
-DEUS, obrigado.
+Em silêncio,
+diga:
 
-Permaneça alguns instantes nessa sensação.
+DEUS,
+obrigado.
 
-Agora permita que esse Amor passe do coração para o pensamento.
+Permaneça alguns instantes
+nessa sensação.
 
-Pergunte:
+Agora observe novamente sua mente.
 
-Se eu viver a partir deste Amor hoje, o que muda em mim?
+O pensamento que estava presente
+no começo continua igual?
 
-Que pensamento precisa mudar?
+Não tente obrigá-lo a mudar.
 
-Que atitude pode nascer desse sentimento?
-
-Ao longo desta experiência, não force nada.
-
-Apenas permita.
+Apenas perceba.
 
 Sentir.
+
+Observar.
 
 Pensar.
 
@@ -460,41 +1156,59 @@ Escolher.
 Agir.
 """
 
+
 FALA_DEUS_2 = """
-Continue respirando lentamente.
+Escolha agora
+um segundo motivo de gratidão.
 
-Escolha agora um segundo motivo de gratidão.
-
-Não apenas pense nele.
+Não apenas pense.
 
 Procure sentir.
 
-Permaneça alguns instantes nesse estado.
+Depois escolha um terceiro.
+
+Perceba o que acontece
+com sua mente
+quando sua atenção permanece
+na gratidão.
 """
+
 
 FALA_DEUS_7 = """
 Agora observe seus pensamentos.
 
-Se você realmente estivesse vivendo a partir do Amor,
-como enxergaria as situações da sua vida?
+Pergunte a si mesmo:
 
-Como enxergaria as pessoas?
+se eu viver a partir deste Amor,
+como posso enxergar
+esta situação de outra maneira?
 
-O que mudaria dentro de você?
+Que pensamento nasce
+quando o medo
+não é a única voz dentro de mim?
 """
 
+
 FALA_DEUS_10 = """
-Agora transforme o sentimento em ação.
+Compare seu estado atual
+com o início da prática.
 
-Escolha uma atitude concreta.
+O que mudou?
 
-Pode ser agradecer alguém.
+Agora transforme
+essa mudança interna
+em uma escolha.
+
+Qual atitude concreta
+pode nascer deste Amor?
+
+Agradecer.
 
 Telefonar.
 
-Escutar.
-
 Ajudar.
+
+Escutar.
 
 Pedir perdão.
 
@@ -502,18 +1216,38 @@ Perdoar.
 
 Servir.
 
-O Amor se completa quando encontra uma forma de chegar à vida.
+Escolha uma.
 """
 
 
+# ============================================================
+# ROTEIROS — ETAPA 2
+# ============================================================
+
 ROTEIRO_PROXIMO = """
-Traga à mente uma pessoa.
+Agora traga à mente
+uma pessoa.
 
-Não comece pelo problema dela.
+Antes de pensar
+sobre o que ela fez
+ou deixou de fazer,
+observe sua própria mente.
 
-Comece pelo Amor.
+Que julgamento aparece primeiro?
 
-Reconheça que essa pessoa possui uma história.
+Que interpretação você já criou
+sobre essa pessoa?
+
+Apenas perceba.
+
+Agora respire lentamente.
+
+Lembre-se:
+
+diante de você existe
+uma vida inteira.
+
+Uma história.
 
 Medos.
 
@@ -525,36 +1259,44 @@ Esperanças.
 
 Necessidades.
 
-Respire lentamente.
+Procure sentir
+boa vontade por essa pessoa.
 
-Procure sentir boa vontade por ela.
-
-Deseje sinceramente que ela esteja bem.
+Deseje sinceramente
+que ela esteja bem.
 
 Agora pergunte:
 
-O que essa pessoa pode estar vivendo?
+o que eu realmente sei
+sobre o que ela está vivendo?
 
-Não suponha que você sabe tudo.
+E o que eu apenas imaginei?
 
-Apenas abra espaço para compreender.
+A empatia começa
+quando distinguimos
+a realidade
+das nossas interpretações.
 
-Amar o próximo começa quando deixamos de olhar apenas para nós mesmos.
+Abra espaço para compreender.
 
-A empatia é uma ponte.
+A empatia é a ponte.
 
-O Amor é o caminho.
-
-Permita que esta experiência conduza você
-da empatia para uma ação concreta.
+O Amor ao próximo
+é aquilo que atravessa essa ponte.
 """
+
 
 FALA_PROXIMO_3 = """
 Pergunte agora:
 
-Do que essa pessoa pode estar precisando?
+o que essa pessoa
+pode estar sentindo?
 
-Talvez precise ser ouvida.
+Do que ela
+pode estar precisando?
+
+Talvez precise
+ser ouvida.
 
 Respeitada.
 
@@ -564,87 +1306,200 @@ Ajudada.
 
 Acompanhada.
 
-Ou simplesmente sentir que não está sozinha.
+Ou simplesmente sentir
+que não está sozinha.
 """
 
+
 FALA_PROXIMO_6 = """
-Agora pergunte:
+Agora observe novamente
+o pensamento que você tinha
+sobre essa pessoa.
 
-O que significa amar esta pessoa hoje?
+Ele continua exatamente igual?
 
-Talvez seja ouvir sem interromper.
+Existe alguma coisa
+que você consegue perceber agora
+que não percebia antes?
+
+Pergunte:
+
+o que significa
+amar esta pessoa hoje?
+"""
+
+
+FALA_PROXIMO_9 = """
+Agora transforme
+a compreensão
+em atitude.
+
+Talvez seja ouvir
+sem interromper.
+
+Perguntar
+como ela realmente está.
 
 Oferecer ajuda.
 
-Encaminhar uma mensagem.
-
 Pedir perdão.
+
+Perdoar.
 
 Respeitar um limite.
 
 Ou simplesmente estar presente.
-"""
 
-FALA_PROXIMO_9 = """
-Escolha agora uma ação concreta.
+Escolha uma ação concreta.
 
-O Amor deixa de ser apenas sentimento
-quando se transforma em presença,
-palavra
-e atitude.
+O Amor se torna visível
+quando chega ao próximo.
 """
 
 
-ROTEIRO_ANSEIO_BASE = """
+# ============================================================
+# ROTEIROS — ETAPA 3
+# ============================================================
+
+ROTEIRO_ANSEIO = """
 Respire lentamente.
 
-Agora volte sua atenção para algo
-que você deseja profundamente em sua vida.
+Agora observe
+o que está acontecendo
+dentro de você.
 
-Não se apresse.
+Existe algum desejo
+que ocupa sua mente repetidamente?
 
-Pergunte a si mesmo:
+Existe algo
+que você gostaria profundamente
+de viver?
 
-Por que isso é importante para mim?
+Não julgue esse desejo.
 
-O que esse desejo representa?
-
-Que tipo de vida ele aponta?
-
-Agora conecte esse anseio ao Amor.
+Observe.
 
 Pergunte:
 
-Se isso acontecer,
-como poderá produzir mais vida,
-crescimento,
-cuidado
-ou contribuição?
+por que isso
+é tão importante para mim?
 
-Não transforme esperança em ansiedade.
+O que acredito
+que vou sentir
+quando isso acontecer?
 
-Não tente controlar o futuro.
+Agora vá um pouco mais fundo.
 
-Apenas permita que o desejo encontre direção.
+O que esse anseio
+representa?
 
-Sentimento.
+Amor?
 
-Pensamento.
+Segurança?
 
-Visão.
+Pertencimento?
 
-Escolha.
+Realização?
 
-Ação.
+Contribuição?
+
+Liberdade?
+
+Crescimento?
+
+Não fique apenas
+na imagem do resultado.
+
+Perceba a necessidade
+que existe por trás dele.
+
+Agora conecte esse anseio
+ao Amor.
+
+Pergunte:
+
+se eu caminhar nessa direção,
+como isso poderá gerar
+mais vida,
+mais crescimento,
+mais cuidado
+ou mais contribuição?
+
+Permita-se sentir esperança.
+
+Depois observe
+os pensamentos que aparecem.
+
+Quais ajudam você
+a caminhar?
+
+Quais apenas repetem medo?
+
+Observe.
+
+Escolha conscientemente
+qual pensamento
+merece ser alimentado.
 """
 
 
+FALA_ANSEIO_5 = """
+Agora imagine
+uma cena concreta.
+
+Você vivendo
+de maneira coerente
+com aquilo que deseja.
+
+Observe como você pensa.
+
+Como se comporta.
+
+Como trata as pessoas.
+
+Não observe apenas
+o resultado.
+
+Observe quem você
+precisaria se tornar
+para caminhar nessa direção.
+"""
+
+
+FALA_ANSEIO_8 = """
+Agora saia da imaginação
+e volte para a realidade.
+
+Pergunte:
+
+qual é o menor passo
+que depende de mim?
+
+Não amanhã.
+
+Não quando tudo estiver perfeito.
+
+Qual passo
+pode começar na vida real?
+"""
+
+
+# ============================================================
+# ROTEIRO — ETAPA 4
+# ============================================================
+
 ROTEIRO_NOITE = """
-Agora você chegou à última etapa.
+Agora você chegou
+à última etapa.
 
-Não há mais nada para conquistar neste momento.
+Neste momento,
+não há nada
+que precise conquistar.
 
-Apenas desacelerar.
+Não há nada
+que precise provar.
+
+Apenas desacelere.
 
 Respire lentamente.
 
@@ -656,26 +1511,38 @@ A mandíbula.
 
 Os ombros.
 
-Permita que o corpo reconheça
-que este é um momento de descanso.
+Solte o peso do corpo.
 
-Recorde algo bom deste dia.
+Recorde algo bom
+deste dia.
+
+Mesmo que tenha sido pequeno.
 
 Agradeça.
 
+Se algum pensamento aparecer,
+observe-o.
+
+Você não precisa segui-lo.
+
+Você pode perceber
+um pensamento
+sem entrar dentro dele.
+
 Se alguma preocupação aparecer,
-não lute contra ela.
+reconheça.
 
-Reconheça.
+E volte para a respiração.
 
-E deixe passar.
-
-Você não precisa resolver tudo agora.
+Você não precisa
+resolver tudo agora.
 
 Depois desta narração,
-o áudio continuará sozinho por uma hora.
+o áudio continuará sozinho
+por uma hora.
 
-Não será necessário fazer mais nada.
+Não será necessário
+pensar em mais nada.
 
 Apenas repousar.
 """
@@ -701,24 +1568,27 @@ tab1, tab2, tab3, tab4 = st.tabs(
 
 with tab1:
 
-    st.header("1. Amor em DEUS")
+    st.header(
+        "1. Amor em DEUS"
+    )
 
-    st.write(
+    st.markdown(
         """
-Comece pelo Amor recebido.
+### Gratidão → Sentimento → Pensamento → Ação
 
-A prática conduz:
-
-**gratidão → sentimento → pensamento → ação**
+O ponto de partida
+é perceber o Amor recebido.
 """
     )
 
     if st.button(
-        "Preparar sessão Amor em DEUS"
+        "Preparar Amor em DEUS",
+        key="preparar_deus",
+        use_container_width=True
     ):
 
         with st.spinner(
-            "Preparando voz..."
+            "Preparando a experiência..."
         ):
 
             voz0 = gerar_voz(
@@ -745,7 +1615,9 @@ A prática conduz:
                 velocidade
             )
 
-        st.session_state["sessao_deus"] = (
+        st.session_state[
+            "sessao_deus"
+        ] = (
             voz0,
             voz2,
             voz7,
@@ -755,10 +1627,13 @@ A prática conduz:
     if "sessao_deus" in st.session_state:
 
         voz0, voz2, voz7, voz10 = (
-            st.session_state["sessao_deus"]
+            st.session_state[
+                "sessao_deus"
+            ]
         )
 
         player_sessao(
+            titulo="❤️ Amor em DEUS",
             voz_inicial=voz0,
             duracao_audio=12 * 60,
             frequencia_inicio=8,
@@ -768,8 +1643,23 @@ A prática conduz:
                 (420, voz7),
                 (600, voz10)
             ],
-            volume=0.10,
-            titulo="❤️ Sessão — Amor em DEUS"
+            volume=0.07,
+            modo="binaural",
+            pausa=pausa_inicial
+        )
+
+    with st.expander(
+        "🧠 Registro metacognitivo opcional"
+    ):
+
+        st.text_area(
+            "Que pensamento predominava antes?",
+            key="meta_deus_antes"
+        )
+
+        st.text_area(
+            "O que mudou na maneira de pensar depois?",
+            key="meta_deus_depois"
         )
 
 
@@ -783,22 +1673,25 @@ with tab2:
         "2. Amor ao Próximo e Empatia"
     )
 
-    st.write(
+    st.markdown(
         """
+### Amor → Empatia → Compreensão → Ação
+
 A empatia é a ponte.
 
-O objetivo é transformar:
-
-**Amor → empatia → compreensão → ação**
+O objetivo é que o Amor
+chegue concretamente ao próximo.
 """
     )
 
     if st.button(
-        "Preparar sessão Amor ao Próximo"
+        "Preparar Amor ao Próximo",
+        key="preparar_proximo",
+        use_container_width=True
     ):
 
         with st.spinner(
-            "Preparando voz..."
+            "Preparando a experiência..."
         ):
 
             voz0 = gerar_voz(
@@ -825,7 +1718,9 @@ O objetivo é transformar:
                 velocidade
             )
 
-        st.session_state["sessao_proximo"] = (
+        st.session_state[
+            "sessao_proximo"
+        ] = (
             voz0,
             voz3,
             voz6,
@@ -835,10 +1730,13 @@ O objetivo é transformar:
     if "sessao_proximo" in st.session_state:
 
         voz0, voz3, voz6, voz9 = (
-            st.session_state["sessao_proximo"]
+            st.session_state[
+                "sessao_proximo"
+            ]
         )
 
         player_sessao(
+            titulo="🤝 Amor ao Próximo",
             voz_inicial=voz0,
             duracao_audio=10 * 60,
             frequencia_inicio=8,
@@ -848,8 +1746,28 @@ O objetivo é transformar:
                 (360, voz6),
                 (540, voz9)
             ],
-            volume=0.10,
-            titulo="🤝 Sessão — Amor ao Próximo"
+            volume=0.07,
+            modo="binaural",
+            pausa=pausa_inicial
+        )
+
+    with st.expander(
+        "🧠 Registro metacognitivo opcional"
+    ):
+
+        st.text_area(
+            "Qual era meu julgamento inicial sobre essa pessoa?",
+            key="meta_proximo_antes"
+        )
+
+        st.text_area(
+            "O que consigo perceber agora que não percebia antes?",
+            key="meta_proximo_depois"
+        )
+
+        st.text_input(
+            "Que ação de Amor realizarei?",
+            key="acao_proximo"
         )
 
 
@@ -863,101 +1781,112 @@ with tab3:
         "3. Anseio e Propósito"
     )
 
-    st.write(
+    st.markdown(
         """
-Escolha algo significativo que deseja viver.
-
-O processo será:
-
-**anseio → sentimento → visão → escolha → ação**
+### Anseio → Sentimento → Pensamento → Visão → Escolha → Ação
 """
     )
 
     anseio = st.text_area(
         "Qual é o seu anseio?",
         placeholder=(
-            "Ex.: melhorar minha relação familiar, "
-            "realizar um projeto, encontrar trabalho..."
-        )
+            "Ex.: melhorar uma relação, "
+            "realizar um projeto, "
+            "encontrar um trabalho com propósito..."
+        ),
+        key="anseio"
     )
 
     if st.button(
-        "Preparar sessão Anseio e Propósito"
+        "Preparar Anseio e Propósito",
+        key="preparar_anseio",
+        use_container_width=True
     ):
 
-        texto_anseio = (
-            ROTEIRO_ANSEIO_BASE
-            + "\n\nSeu anseio escolhido é:\n"
-            + anseio
-            if anseio
-            else ROTEIRO_ANSEIO_BASE
+        texto_inicial = (
+            ROTEIRO_ANSEIO
         )
 
-        fala_meio = """
-Agora imagine por alguns instantes
-como seria viver de maneira coerente
-com esse propósito.
+        if anseio.strip():
 
-Observe como você pensaria.
-
-Como agiria.
-
-Como trataria as pessoas.
-"""
-
-        fala_final = """
-Agora escolha o menor passo real
-que depende de você.
-
-A esperança ganha direção
-quando encontra ação.
-"""
+            texto_inicial += (
+                "\n\n"
+                "O anseio que você escolheu "
+                "para esta prática é: "
+                + anseio
+                + "."
+            )
 
         with st.spinner(
-            "Preparando voz..."
+            "Preparando a experiência..."
         ):
 
             voz0 = gerar_voz(
-                texto_anseio,
+                texto_inicial,
                 voz_escolhida,
                 velocidade
             )
 
-            voz_meio = gerar_voz(
-                fala_meio,
+            voz5 = gerar_voz(
+                FALA_ANSEIO_5,
                 voz_escolhida,
                 velocidade
             )
 
-            voz_final = gerar_voz(
-                fala_final,
+            voz8 = gerar_voz(
+                FALA_ANSEIO_8,
                 voz_escolhida,
                 velocidade
             )
 
-        st.session_state["sessao_anseio"] = (
+        st.session_state[
+            "sessao_anseio"
+        ] = (
             voz0,
-            voz_meio,
-            voz_final
+            voz5,
+            voz8
         )
 
     if "sessao_anseio" in st.session_state:
 
-        voz0, voz_meio, voz_final = (
-            st.session_state["sessao_anseio"]
+        voz0, voz5, voz8 = (
+            st.session_state[
+                "sessao_anseio"
+            ]
         )
 
         player_sessao(
+            titulo="✨ Anseio e Propósito",
             voz_inicial=voz0,
             duracao_audio=10 * 60,
             frequencia_inicio=8,
             frequencia_fim=18,
             falas_intermediarias=[
-                (300, voz_meio),
-                (480, voz_final)
+                (300, voz5),
+                (480, voz8)
             ],
-            volume=0.10,
-            titulo="✨ Sessão — Anseio e Propósito"
+            volume=0.07,
+            modo="binaural",
+            pausa=pausa_inicial
+        )
+
+    with st.expander(
+        "🧠 Registro metacognitivo opcional"
+    ):
+
+        st.text_area(
+            "O que acredito que esse desejo me dará?",
+            key="meta_anseio_significado"
+        )
+
+        st.text_area(
+            "Que pensamentos me aproximam ou me afastam dele?",
+            key="meta_anseio_pensamentos"
+        )
+
+        st.text_input(
+            "Qual é o próximo passo que depende de mim?",
+            key="meta_anseio_acao"
         )
 
 
@@ -971,36 +1900,42 @@ with tab4:
         "4. Integração Noturna — 1 Hora"
     )
 
-    st.write(
+    st.markdown(
         """
-Esta é a última etapa.
+Esta é a **última etapa**.
 
-Depois da narração inicial,
-o som continua sozinho por **1 hora**.
+Primeiro vem a narração.
 
-Estrutura:
+Depois de uma pequena pausa,
+o áudio começa automaticamente
+e segue sozinho por uma hora.
 
-- primeira metade: aproximadamente **6 Hz**
-- transição gradual
-- segunda metade: aproximadamente **2,5 Hz**
+### Estrutura
 
-O som combina modulação
-monaural e isocrônica.
+**0:00 até 29:30**  
+Monaural + isocrônico em **6 Hz**
+
+**29:30 até 30:30**  
+Transição gradual
+
+**30:30 até 60:00**  
+Monaural + isocrônico em **2,5 Hz**
 """
     )
 
-    st.warning(
+    st.caption(
         "Use volume baixo. "
-        "Não utilize enquanto dirige "
-        "ou realiza atividades que exigem atenção."
+        "Esta etapa é destinada ao repouso."
     )
 
     if st.button(
-        "Preparar Integração Noturna"
+        "Preparar Integração Noturna",
+        key="preparar_noite",
+        use_container_width=True
     ):
 
         with st.spinner(
-            "Preparando voz..."
+            "Preparando a narração..."
         ):
 
             voz_noite = gerar_voz(
@@ -1016,81 +1951,36 @@ monaural e isocrônica.
     if "sessao_noite" in st.session_state:
 
         player_sessao(
-            voz_inicial=
-                st.session_state["sessao_noite"],
+            titulo="🌙 Integração Noturna — 1 Hora",
+            voz_inicial=(
+                st.session_state[
+                    "sessao_noite"
+                ]
+            ),
             duracao_audio=60 * 60,
             frequencia_inicio=6,
             frequencia_fim=2.5,
             falas_intermediarias=[],
-            volume=0.08,
-            titulo="🌙 Integração Noturna — 1 Hora"
+            volume=0.045,
+            modo="noturno",
+            pausa=pausa_inicial
         )
 
 
 # ============================================================
-# INFORMAÇÕES IMPORTANTES
-# ============================================================
-
-st.divider()
-
-with st.expander(
-    "ℹ️ Sobre frequências, coração e bem-estar"
-):
-
-    st.markdown(
-        """
-Os sons e frequências deste aplicativo
-são usados como suporte para
-relaxamento, atenção, contemplação
-e organização da experiência interior.
-
-Eles não devem ser interpretados
-como garantia de indução de estados
-cerebrais específicos.
-
-Da mesma forma,
-conceitos como energia,
-campo do coração
-ou destino podem ser utilizados
-como linguagem simbólica,
-espiritual ou contemplativa.
-
-O aplicativo não afirma
-que pensamentos ou sentimentos
-alterem fisicamente acontecimentos futuros
-por meio de campos eletromagnéticos.
-
-Depressão e ansiedade
-são condições multifatoriais.
-
-Amor,
-vínculo,
-espiritualidade,
-sentido,
-apoio social
-e práticas contemplativas
-podem contribuir para o bem-estar,
-mas não substituem acompanhamento
-médico ou psicológico quando necessário.
-"""
-    )
-
-
-# ============================================================
-# FECHAMENTO
+# CAMINHO COMPLETO
 # ============================================================
 
 st.divider()
 
 st.markdown(
     """
-## O caminho completo
+## O Caminho do Amor
 
-**DEUS → Amor → Gratidão → Coração → Pensamento → Amor ao Próximo → Empatia → Propósito → Escolha → Ação → Acolhimento → Comunidade → Paz**
+**DEUS → Amor → Gratidão → Coração → Consciência → Pensamento → Amor ao Próximo → Empatia → Propósito → Escolha → Ação → Acolhimento → Comunidade → Paz**
 """
 )
 
 st.caption(
-    "Manual Prático do Amor — experiência de contemplação, "
-    "empatia, propósito e ação."
+    "Manual Prático do Amor"
 )
